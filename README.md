@@ -332,6 +332,20 @@ openclaw gateway restart
 
 ---
 
+## Ủng hộ đồng bào 🇻🇳
+
+> Nếu ZaloClaw có ích với bạn, hãy cân nhắc đóng góp cho **Quỹ Cứu trợ Trung ương — Ủy ban MTTQ Việt Nam** để hỗ trợ đồng bào bị thiên tai, lũ lụt.
+
+| Ngân hàng | STK | Tên tài khoản | Chi nhánh | QR |
+|-----------|-----|--------------|-----------|----|
+| **Vietcombank** | `666.666.1010` | Ủy ban TW MTTQ Việt Nam | Hà Nội | [![QR VCB](https://img.vietqr.io/image/970436-6666661010-compact2.png?accountName=UBTW+MTTQ+Viet+Nam&addInfo=Ung+ho+dong+bao)](https://img.vietqr.io/image/970436-6666661010-compact2.png?accountName=UBTW+MTTQ+Viet+Nam&addInfo=Ung+ho+dong+bao) |
+| **VietinBank** | `55102025` | Ban Vận động Cứu trợ Trung ương | — | [![QR VTB](https://img.vietqr.io/image/970415-55102025-compact2.png?accountName=Ban+Van+dong+Cuu+tro+TW&addInfo=Ung+ho+dong+bao)](https://img.vietqr.io/image/970415-55102025-compact2.png?accountName=Ban+Van+dong+Cuu+tro+TW&addInfo=Ung+ho+dong+bao) |
+| **BIDV** | `1200979797` | Ủy ban TW MTTQ Việt Nam | Sở Giao dịch 1 | [![QR BIDV](https://img.vietqr.io/image/970418-1200979797-compact2.png?accountName=UBTW+MTTQ+Viet+Nam&addInfo=Ung+ho+dong+bao)](https://img.vietqr.io/image/970418-1200979797-compact2.png?accountName=UBTW+MTTQ+Viet+Nam&addInfo=Ung+ho+dong+bao) |
+
+> ⚠️ **Cảnh báo:** MTTQ đã thông báo có nhiều tài khoản giả mạo. Chỉ chuyển vào **3 STK trên** — nguồn chính thức: [mattran.org.vn](https://mattran.org.vn)
+
+---
+
 ## Giấy phép
 
 [MIT](LICENSE) © [monas-team](https://github.com/monas-team)
