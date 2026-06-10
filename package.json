@@ -5,15 +5,15 @@
   "type": "module",
   "main": "dist/index.js",
   "license": "MIT",
-  "author": "monasprox",
+  "author": "monas-team",
   "repository": {
     "type": "git",
-    "url": "https://github.com/monasprox/zaloclaw.git"
+    "url": "https://github.com/monas-team/zaloclaw.git"
   },
   "bugs": {
-    "url": "https://github.com/monasprox/zaloclaw/issues"
+    "url": "https://github.com/monas-team/zaloclaw/issues"
   },
-  "homepage": "https://github.com/monasprox/zaloclaw#readme",
+  "homepage": "https://github.com/monas-team/zaloclaw#readme",
   "keywords": [
     "openclaw",
     "zalo",
@@ -31,7 +31,15 @@
     ],
     "runtimeExtensions": [
       "./dist/index.js"
-    ]
+    ],
+    "compat": {
+      "pluginApi": ">=2026.2.0",
+      "minGatewayVersion": "2026.2.0"
+    },
+    "build": {
+      "openclawVersion": "2026.5.7",
+      "pluginSdkVersion": "2026.5.7"
+    }
   },
   "scripts": {
     "build": "esbuild index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:openclaw --external:sharp --packages=external",

@@ -171,20 +171,48 @@ var init_zalo_client = __esm({
 });
 
 // src/parsing/mention-parser.ts
+function normalizeName(name) {
+  return name.trim().normalize("NFC");
+}
+function nameKey(name) {
+  return normalizeName(name).toLowerCase();
+}
+function profileName(profile) {
+  return normalizeName(
+    String(
+      profile?.displayName ?? profile?.display_name ?? profile?.dName ?? profile?.zaloName ?? profile?.zalo_name ?? profile?.name ?? ""
+    )
+  );
+}
 function buildIndex(members) {
-  const cleaned = members.filter((m) => m.uid && m.name && m.name.trim().length > 0);
+  const cleaned = members.map((m) => ({ uid: m.uid, name: normalizeName(m.name) })).filter((m) => m.uid && m.name.length > 0);
   const counts = /* @__PURE__ */ new Map();
   for (const m of cleaned) {
-    const key = m.name.toLowerCase();
+    const key = nameKey(m.name);
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   const uniqueNameToUid = /* @__PURE__ */ new Map();
   for (const m of cleaned) {
-    const key = m.name.toLowerCase();
+    const key = nameKey(m.name);
     if (counts.get(key) === 1) uniqueNameToUid.set(key, m.uid);
   }
-  const byNameLower = cleaned.map((m) => ({ nameLower: m.name.toLowerCase(), nameOriginal: m.name, uid: m.uid })).sort((a, b) => b.nameLower.length - a.nameLower.length);
+  const byNameLower = cleaned.map((m) => ({ nameLower: nameKey(m.name), nameOriginal: m.name, uid: m.uid })).sort((a, b) => b.nameLower.length - a.nameLower.length);
   return { byNameLower, uniqueNameToUid };
+}
+function upsertMembersFromProfiles(membersByUid, profiles) {
+  for (const [uid, p] of Object.entries(profiles)) {
+    const name = profileName(p);
+    if (name) membersByUid.set(uid, { uid, name });
+  }
+}
+async function fetchUserInfoProfiles(api, memberIds) {
+  if (memberIds.length === 0) return {};
+  try {
+    const userInfoResp = await api.getUserInfo(memberIds);
+    return userInfoResp?.changed_profiles ?? {};
+  } catch {
+    return {};
+  }
 }
 async function loadGroupMemberIndex(groupId) {
   const cached = groupMemberCache.get(groupId);
@@ -199,38 +227,34 @@ async function loadGroupMemberIndex(groupId) {
     memberIds = memVerList.map((entry) => entry.split("_")[0]).filter(Boolean);
   }
   if (memberIds.length === 0) return buildIndex([]);
-  const profilesResp = await api.getGroupMembersInfo(memberIds);
-  const profiles = profilesResp?.profiles ?? {};
-  let members = Object.entries(profiles).map(([uid, p]) => ({
-    uid,
-    name: String(p.displayName ?? p.dName ?? p.zaloName ?? "").trim()
-  }));
-  if (members.length === 0) {
+  const membersByUid = /* @__PURE__ */ new Map();
+  const batchSize = 40;
+  for (let i = 0; i < memberIds.length; i += batchSize) {
+    const batch = memberIds.slice(i, i + batchSize);
     try {
-      const userInfoResp = await api.getUserInfo(memberIds);
-      const changedProfiles = userInfoResp?.changed_profiles ?? {};
-      members = Object.entries(changedProfiles).map(([uid, p]) => ({
-        uid,
-        name: String(p.displayName ?? p.display_name ?? p.zaloName ?? p.zalo_name ?? "").trim()
-      }));
-    } catch {
+      const profilesResp = await api.getGroupMembersInfo(batch);
+      upsertMembersFromProfiles(membersByUid, profilesResp?.profiles ?? {});
+    } catch (err) {
+      console.error(`[mention-parser] getGroupMembersInfo batch failed for group ${groupId}:`, err);
     }
   }
-  if (members.length === 0) {
+  let missingMemberIds = memberIds.filter((uid) => !membersByUid.has(uid));
+  if (missingMemberIds.length > 0) {
+    const changedProfiles = await fetchUserInfoProfiles(api, missingMemberIds);
+    upsertMembersFromProfiles(membersByUid, changedProfiles);
+  }
+  missingMemberIds = memberIds.filter((uid) => !membersByUid.has(uid));
+  if (missingMemberIds.length > 0) {
     const settled = await Promise.allSettled(
-      memberIds.map((uid) => api.getUserInfo(uid))
+      missingMemberIds.map((uid) => api.getUserInfo(uid))
     );
     for (const result of settled) {
       if (result.status !== "fulfilled") continue;
       const changedProfiles = result.value?.changed_profiles ?? {};
-      for (const [uid, p] of Object.entries(changedProfiles)) {
-        const name = String(
-          p.displayName ?? p.display_name ?? p.zaloName ?? p.zalo_name ?? ""
-        ).trim();
-        if (name) members.push({ uid, name });
-      }
+      upsertMembersFromProfiles(membersByUid, changedProfiles);
     }
   }
+  const members = Array.from(membersByUid.values());
   const index = buildIndex(members);
   if (groupMemberCache.size >= MEMBER_CACHE_MAX) {
     const firstKey = groupMemberCache.keys().next().value;
@@ -679,6 +703,19 @@ import * as fs5 from "fs";
 import * as path2 from "path";
 import * as crypto2 from "crypto";
 import * as os2 from "os";
+function detectImageType(buffer) {
+  for (const { prefix, type } of IMAGE_MAGIC_BYTES) {
+    if (buffer.length >= prefix.length) {
+      const match = prefix.every((byte, i) => buffer[i] === byte);
+      if (match) return type;
+    }
+  }
+  const head = buffer.subarray(0, 100).toString("utf8").trim().toLowerCase();
+  if (head.startsWith("<svg") || head.startsWith("<?xml") && head.includes("<svg")) {
+    return "svg";
+  }
+  return void 0;
+}
 async function downloadImageFromUrl(url, workspaceDir) {
   try {
     const targetDir = workspaceDir || path2.join(os2.homedir(), ".openclaw/media/inbound");
@@ -697,19 +734,30 @@ async function downloadImageFromUrl(url, workspaceDir) {
       return void 0;
     }
     const isZaloCdn = /^https:\/\/(?:[a-z0-9-]+\.)*(?:zalo|zadn|zdn)\.(?:vn|me)\//i.test(url);
-    const { buffer } = await safeFetch(url, {
+    const { buffer, contentType } = await safeFetch(url, {
       maxSizeBytes: MAX_IMAGE_SIZE_BYTES,
       skipSsrfCheck: isZaloCdn
     });
+    const mimeBase = contentType?.split(";")[0]?.trim().toLowerCase();
+    if (mimeBase && !ALLOWED_MIME_TYPES.has(mimeBase) && !mimeBase.startsWith("image/")) {
+      console.warn(`[image-downloader] Rejected non-image content-type "${contentType}" from ${url}`);
+      return void 0;
+    }
+    const detectedType = detectImageType(buffer);
+    if (!detectedType) {
+      const headStr = buffer.subarray(0, 200).toString("utf8").toLowerCase();
+      if (headStr.includes("<!doctype") || headStr.includes("<html") || headStr.includes("<head")) {
+        console.warn(`[image-downloader] Rejected HTML content disguised as image from ${url}`);
+        return void 0;
+      }
+      console.warn(`[image-downloader] Unknown image format from ${url}, saving anyway`);
+    }
     fs5.writeFileSync(filePath, buffer);
     return filePath;
   } catch (err) {
     console.error(`[image-downloader] Error downloading ${url}:`, err);
     return void 0;
   }
-}
-async function downloadImagesFromUrls(urls, workspaceDir) {
-  return Promise.all(urls.map((url) => downloadImageFromUrl(url, workspaceDir)));
 }
 function getSafeExtension(url) {
   try {
@@ -724,20 +772,100 @@ function getSafeExtension(url) {
   }
   return "jpg";
 }
-var MAX_IMAGE_SIZE_BYTES, ALLOWED_EXTENSIONS;
+var MAX_IMAGE_SIZE_BYTES, ALLOWED_EXTENSIONS, ALLOWED_MIME_TYPES, IMAGE_MAGIC_BYTES;
 var init_image_downloader = __esm({
   "src/channel/image-downloader.ts"() {
     "use strict";
     init_url_validator();
     MAX_IMAGE_SIZE_BYTES = 20 * 1024 * 1024;
     ALLOWED_EXTENSIONS = /* @__PURE__ */ new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "tiff"]);
+    ALLOWED_MIME_TYPES = /* @__PURE__ */ new Set([
+      "image/jpeg",
+      "image/png",
+      "image/gif",
+      "image/webp",
+      "image/bmp",
+      "image/svg+xml",
+      "image/tiff"
+    ]);
+    IMAGE_MAGIC_BYTES = [
+      { prefix: [255, 216, 255], type: "jpeg" },
+      // JPEG
+      { prefix: [137, 80, 78, 71], type: "png" },
+      // PNG
+      { prefix: [71, 73, 70, 56], type: "gif" },
+      // GIF (GIF87a/GIF89a)
+      { prefix: [82, 73, 70, 70], type: "webp" },
+      // WebP (RIFF container)
+      { prefix: [66, 77], type: "bmp" }
+      // BMP
+    ];
+  }
+});
+
+// src/channel/file-downloader.ts
+import * as fs6 from "fs";
+import * as path3 from "path";
+import * as crypto3 from "crypto";
+import * as os3 from "os";
+async function downloadFileFromUrl(url, workspaceDir) {
+  try {
+    const targetDir = workspaceDir || path3.join(os3.homedir(), ".openclaw/media/inbound");
+    if (!fs6.existsSync(targetDir)) {
+      fs6.mkdirSync(targetDir, { recursive: true });
+    }
+    const urlHash = crypto3.createHash("sha256").update(url).digest("hex").substring(0, 12);
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").substring(0, 19);
+    const ext = getSafeExtension2(url) || "file";
+    const filename = `${timestamp}-zalo-file-${urlHash}.${ext}`;
+    const filePath = path3.join(targetDir, filename);
+    const resolvedPath = path3.resolve(filePath);
+    const resolvedDir = path3.resolve(targetDir);
+    if (!resolvedPath.startsWith(resolvedDir + path3.sep)) {
+      console.error(`[file-downloader] Path traversal blocked: ${filePath}`);
+      return void 0;
+    }
+    const isZaloCdn = /^https:\/\/(?:[a-z0-9-]+\.)*(?:zalo|zadn|zdn)\.(?:vn|me)\//i.test(url);
+    const { buffer, contentType } = await safeFetch(url, {
+      maxSizeBytes: MAX_FILE_SIZE_BYTES,
+      skipSsrfCheck: isZaloCdn
+    });
+    if (contentType) {
+      console.log(`[file-downloader] Downloaded ${contentType} from ${url}`);
+    }
+    fs6.writeFileSync(filePath, buffer);
+    console.log(`[file-downloader] Saved to ${filePath} (${buffer.length} bytes)`);
+    return filePath;
+  } catch (err) {
+    console.error(`[file-downloader] Error downloading ${url}:`, err);
+    return void 0;
+  }
+}
+function getSafeExtension2(url) {
+  try {
+    const urlObj = new URL(url);
+    const pathname = urlObj.pathname;
+    const match = pathname.match(/\.([a-z0-9]+)$/i);
+    if (match) {
+      return match[1].toLowerCase();
+    }
+  } catch {
+  }
+  return "";
+}
+var MAX_FILE_SIZE_BYTES;
+var init_file_downloader = __esm({
+  "src/channel/file-downloader.ts"() {
+    "use strict";
+    init_url_validator();
+    MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
   }
 });
 
 // src/client/friend-request-store.ts
-import { readFileSync as readFileSync3, writeFileSync as writeFileSync4, mkdirSync as mkdirSync3 } from "node:fs";
-import { dirname as dirname2, join as join4 } from "node:path";
-import { homedir as homedir3 } from "node:os";
+import { readFileSync as readFileSync3, writeFileSync as writeFileSync5, mkdirSync as mkdirSync4 } from "node:fs";
+import { dirname as dirname2, join as join5 } from "node:path";
+import { homedir as homedir4 } from "node:os";
 function loadRequests() {
   if (cache !== null) return cache;
   try {
@@ -751,8 +879,8 @@ function loadRequests() {
 }
 function saveRequests(requests) {
   cache = requests;
-  mkdirSync3(dirname2(STORE_PATH), { recursive: true });
-  writeFileSync4(STORE_PATH, JSON.stringify(requests, null, 2));
+  mkdirSync4(dirname2(STORE_PATH), { recursive: true });
+  writeFileSync5(STORE_PATH, JSON.stringify(requests, null, 2));
 }
 function addPendingRequest(fromUid, message, src) {
   const requests = loadRequests().filter((r) => r.fromUid !== fromUid);
@@ -770,7 +898,7 @@ var STORE_PATH, cache;
 var init_friend_request_store = __esm({
   "src/client/friend-request-store.ts"() {
     "use strict";
-    STORE_PATH = join4(homedir3(), ".openclaw", "zalo-friend-requests.json");
+    STORE_PATH = join5(homedir4(), ".openclaw", "zalo-friend-requests.json");
     cache = null;
   }
 });
@@ -1199,8 +1327,8 @@ var init_thread_queue = __esm({
         const entry = state.queue.shift();
         state.processing = true;
         this.#activeCount++;
-        const timeoutPromise = new Promise((resolve3) => {
-          const timer = setTimeout(() => resolve3("timeout"), this.#processingTimeoutMs);
+        const timeoutPromise = new Promise((resolve5) => {
+          const timer = setTimeout(() => resolve5("timeout"), this.#processingTimeoutMs);
           if (typeof timer === "object" && "unref" in timer) {
             timer.unref();
           }
@@ -1254,7 +1382,10 @@ var init_thread_queue = __esm({
 // src/channel/monitor.ts
 var monitor_exports = {};
 __export(monitor_exports, {
+  _convertToZaloClawMessage: () => convertToZaloClawMessage,
+  _filterAttachableMediaPaths: () => filterAttachableMediaPaths,
   _isDuplicateMsg: () => isDuplicateMsg,
+  _isSystemNotificationContent: () => isSystemNotificationContent,
   _processedMsgIds: () => processedMsgIds,
   monitorZaloClawProvider: () => monitorZaloClawProvider
 });
@@ -1262,6 +1393,10 @@ import { createReplyPrefixOptions, createTypingCallbacks } from "openclaw/plugin
 import { logTypingFailure, logAckFailure } from "openclaw/plugin-sdk/channel-feedback";
 import { mergeAllowlist, summarizeMapping } from "openclaw/plugin-sdk/allow-from";
 import { ThreadType as ThreadType2, FriendEventType, Reactions } from "zca-js";
+import * as fs7 from "fs";
+import * as path4 from "path";
+import * as crypto4 from "crypto";
+import sharp2 from "sharp";
 function resolveMentionGatingWithBypass(params) {
   if (!params.isGroup || !params.requireMention) return { shouldSkip: false };
   if (params.wasMentioned) return { shouldSkip: false };
@@ -1315,6 +1450,51 @@ function isDuplicateMsg(msgId) {
   }
   processedMsgIds.set(msgId, now);
   return false;
+}
+function isSystemNotificationContent(content) {
+  const normalized = content.trim();
+  return SYSTEM_NOTIFICATION_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+function pushMediaUrl(mediaUrls, mediaTypes, url, mimeType) {
+  if (typeof url !== "string" || !url.trim()) return;
+  const trimmed = url.trim();
+  if (mediaUrls.includes(trimmed)) return;
+  mediaUrls.push(trimmed);
+  mediaTypes.push(mimeType);
+}
+function mediaMimeFromObject(obj) {
+  const raw = [
+    obj.type,
+    obj.mediaType,
+    obj.contentType,
+    obj.mimeType,
+    obj.msgType
+  ].map((value) => typeof value === "string" || typeof value === "number" ? String(value).toLowerCase() : "").join(" ");
+  if (raw.includes("photo") || raw.includes("image")) return "image/jpeg";
+  if (raw.includes("video")) return "video/mp4";
+  if (raw.includes("audio") || raw.includes("voice")) return "audio/mpeg";
+  if (raw.includes("file") || raw.includes("attach")) return "application/octet-stream";
+  return void 0;
+}
+function looksLikeExplicitFileObject(obj, url) {
+  const hasFileName = ["fileName", "filename", "name"].some((key) => typeof obj[key] === "string" && String(obj[key]).trim().length > 0);
+  const hasFileSize = ["fileSize", "size"].some((key) => obj[key] !== void 0 && obj[key] !== null);
+  return hasFileName || hasFileSize || GENERIC_FILE_URL_RE.test(url) || IMAGE_URL_RE.test(url);
+}
+function fileSha256(filePath) {
+  try {
+    return crypto4.createHash("sha256").update(fs7.readFileSync(filePath)).digest("hex");
+  } catch {
+    return void 0;
+  }
+}
+function looksLikeHtmlFile(filePath) {
+  try {
+    const head = fs7.readFileSync(filePath).subarray(0, 512).toString("utf8").trim().toLowerCase();
+    return head.includes("<!doctype") || head.includes("<html") || head.includes("<head");
+  } catch {
+    return false;
+  }
 }
 function getQuoteForThread(threadId) {
   const cached = lastInboundMessage.get(threadId);
@@ -1458,22 +1638,57 @@ function isGroupAllowed(params) {
   if (wildcard) return wildcard.allow !== false && wildcard.enabled !== false;
   return false;
 }
+function renameFilesFromMessageContent(messageText, localPaths) {
+  const filenamePattern = /([\w][\w.\-_]*\.(?:csv|pdf|docx?|xlsx?|txt|zip|rar|7z|pptx?|odt|ods|jpg|jpeg|png|gif|bmp|webp|mp[34]|avi|mkv))/gi;
+  const matches = messageText.match(filenamePattern) ?? [];
+  if (matches.length === 0 || localPaths.length === 0) return localPaths;
+  const renamed = [];
+  const usedNames = /* @__PURE__ */ new Set();
+  for (let i = 0; i < localPaths.length; i++) {
+    const fp = localPaths[i];
+    const targetName = i < matches.length ? matches[i] : void 0;
+    if (targetName && !usedNames.has(targetName)) {
+      const safeName = targetName.replace(/[\/\\]/g, "_").substring(0, 120);
+      const dir = path4.dirname(fp);
+      const newPath = path4.join(dir, safeName);
+      try {
+        let finalPath = newPath;
+        let counter = 1;
+        while (fs7.existsSync(finalPath)) {
+          const ext = path4.extname(safeName);
+          const base = path4.basename(safeName, ext);
+          finalPath = path4.join(dir, `${base}_${counter}${ext}`);
+          counter++;
+        }
+        fs7.renameSync(fp, finalPath);
+        console.log(`[zaloclaw] Renamed ${fp} \u2192 ${finalPath}`);
+        renamed.push(finalPath);
+        usedNames.add(safeName);
+      } catch (err) {
+        console.warn(`[zaloclaw] Failed to rename ${fp}: ${err}`);
+        renamed.push(fp);
+      }
+    } else {
+      renamed.push(fp);
+    }
+  }
+  return renamed;
+}
 function extractMediaFromObject(obj, mediaUrls, mediaTypes) {
-  if (obj.href) {
-    mediaUrls.push(obj.href);
-    const attachmentType = (obj.type ?? "").toLowerCase();
-    let mimeType = "application/octet-stream";
-    if (attachmentType.includes("photo") || attachmentType.includes("image")) mimeType = "image/jpeg";
-    else if (attachmentType.includes("video")) mimeType = "video/mp4";
-    else if (attachmentType.includes("audio")) mimeType = "audio/mpeg";
-    mediaTypes.push(mimeType);
+  if (!obj || typeof obj !== "object") return "";
+  const record = obj;
+  const title = typeof record.title === "string" ? record.title : "";
+  const description = typeof record.description === "string" ? record.description : "";
+  const mimeType = mediaMimeFromObject(record);
+  const photoUrl = record.hdUrl || record.normalUrl || record.oriUrl;
+  if (photoUrl) {
+    pushMediaUrl(mediaUrls, mediaTypes, photoUrl, "image/jpeg");
   }
-  const photoUrl = obj.hdUrl || obj.normalUrl || obj.oriUrl || obj.thumb;
-  if (photoUrl && !mediaUrls.includes(photoUrl)) {
-    mediaUrls.push(photoUrl);
-    mediaTypes.push("image/jpeg");
+  const href = typeof record.href === "string" ? record.href : typeof record.url === "string" ? record.url : "";
+  if (href && (mimeType || looksLikeExplicitFileObject(record, href))) {
+    pushMediaUrl(mediaUrls, mediaTypes, href, mimeType ?? (IMAGE_URL_RE.test(href) ? "image/jpeg" : "application/octet-stream"));
   }
-  return obj.title || obj.description || (mediaUrls.length > 0 ? "[Media attachment]" : "");
+  return title || description || (mediaUrls.length > 0 ? "[Media attachment]" : "");
 }
 function convertToZaloClawMessage(msg) {
   const data = msg.data;
@@ -1500,27 +1715,11 @@ function convertToZaloClawMessage(msg) {
   } else if (typeof data.content === "object" && data.content !== null) {
     const attachment = data.content;
     content = extractMediaFromObject(attachment, mediaUrls, mediaTypes);
-    if (!content) content = "[Media attachment]";
+    if (!content && mediaUrls.length > 0) content = "[Media attachment]";
   }
+  if (content && isSystemNotificationContent(content)) return null;
   if (!content.trim() && mediaUrls.length === 0) return null;
   const quote = data.quote;
-  if (quote?.attach) {
-    try {
-      const attachData = JSON.parse(quote.attach);
-      const attachList = Array.isArray(attachData) ? attachData : [attachData];
-      for (const item of attachList) {
-        const url = item.href || item.url || item.thumb;
-        if (url && !mediaUrls.includes(url)) {
-          mediaUrls.push(url);
-          const t = (item.type || "").toLowerCase();
-          if (t.includes("photo") || t.includes("image")) mediaTypes.push("image/jpeg");
-          else if (t.includes("video")) mediaTypes.push("video/mp4");
-          else mediaTypes.push("image/jpeg");
-        }
-      }
-    } catch {
-    }
-  }
   const isGroup = msg.type === ThreadType2.Group;
   const threadId = msg.threadId;
   const rawSenderId = data.uidFrom;
@@ -1552,6 +1751,64 @@ function convertToZaloClawMessage(msg) {
       fromId: senderId
     }
   };
+}
+function isImageAttachment(url, mediaType) {
+  const type = mediaType?.toLowerCase() ?? "";
+  return type.startsWith("image/") || IMAGE_URL_RE.test(url);
+}
+async function downloadInboundMedia(message) {
+  const urls = message.mediaUrls ?? [];
+  const mediaTypes = message.mediaTypes ?? [];
+  const downloaded = [];
+  const seenUrls = /* @__PURE__ */ new Set();
+  const seenHashes = /* @__PURE__ */ new Set();
+  for (let i = 0; i < urls.length; i++) {
+    const url = urls[i];
+    if (seenUrls.has(url)) continue;
+    seenUrls.add(url);
+    const mediaType = mediaTypes[i];
+    const localPath = isImageAttachment(url, mediaType) ? await downloadImageFromUrl(url) : await downloadFileFromUrl(url);
+    if (!localPath) continue;
+    const hash = fileSha256(localPath);
+    if (hash && seenHashes.has(hash)) {
+      try {
+        fs7.rmSync(localPath, { force: true });
+      } catch {
+      }
+      continue;
+    }
+    if (hash) seenHashes.add(hash);
+    if (!downloaded.includes(localPath)) downloaded.push(localPath);
+  }
+  return downloaded;
+}
+async function filterAttachableMediaPaths(paths) {
+  const filtered = [];
+  for (const filePath of paths) {
+    try {
+      const metadata = await sharp2(filePath).metadata();
+      if (metadata.width && metadata.height) {
+        const minSide = Math.min(metadata.width, metadata.height);
+        const maxSide = Math.max(metadata.width, metadata.height);
+        const aspectRatio = maxSide / minSide;
+        if (minSide < 180) {
+          console.warn(`[zaloclaw] Dropping tiny image attachment ${filePath} (${metadata.width}x${metadata.height})`);
+          continue;
+        }
+        if (aspectRatio >= 4 && minSide < 300) {
+          console.warn(`[zaloclaw] Dropping banner-like image attachment ${filePath} (${metadata.width}x${metadata.height})`);
+          continue;
+        }
+      }
+    } catch {
+      if (IMAGE_URL_RE.test(filePath) || looksLikeHtmlFile(filePath)) {
+        console.warn(`[zaloclaw] Dropping invalid image attachment ${filePath}`);
+        continue;
+      }
+    }
+    filtered.push(filePath);
+  }
+  return filtered;
 }
 async function processMessage(message, account, config, core, runtime2, statusSink) {
   const { threadId, content, timestamp, metadata } = message;
@@ -1680,17 +1937,10 @@ ${effectiveContent}`;
     });
     if (mentionGate.shouldSkip) {
       const resolvedName = senderName || await resolveUserName(senderId);
-      let bufferedLocalPaths;
-      if (message.mediaUrls && message.mediaUrls.length > 0) {
-        const downloaded = await downloadImagesFromUrls(message.mediaUrls);
-        bufferedLocalPaths = downloaded.filter((p) => p !== void 0);
-      }
       bufferGroupMessage(chatId, {
         senderName: resolvedName,
         content: rawBody,
-        timestamp: timestamp ?? Math.floor(Date.now() / 1e3),
-        mediaUrls: message.mediaUrls,
-        localMediaPaths: bufferedLocalPaths
+        timestamp: timestamp ?? Math.floor(Date.now() / 1e3)
       });
       logVerbose(core, runtime2, `Buffered non-mention message in group ${chatId} from ${senderId}`);
       return;
@@ -1764,33 +2014,25 @@ ${bodyWithSender}`;
   const shouldProcessImages = !isGroup || wasMentioned;
   let localMediaPaths;
   if (shouldProcessImages && message.mediaUrls && message.mediaUrls.length > 0) {
-    console.log(`[zaloclaw] Downloading ${message.mediaUrls.length} images for native image support...`);
-    const downloadedPaths = await downloadImagesFromUrls(message.mediaUrls);
-    localMediaPaths = downloadedPaths.filter((p) => p !== void 0);
+    console.log(`[zaloclaw] Downloading ${message.mediaUrls.length} attachment(s) for native support...`);
+    localMediaPaths = await filterAttachableMediaPaths(await downloadInboundMedia(message));
+    if (localMediaPaths.length > 0 && rawBody) {
+      localMediaPaths = renameFilesFromMessageContent(rawBody, localMediaPaths);
+    }
     if (localMediaPaths.length > 0) {
-      console.log(`[zaloclaw] Downloaded ${localMediaPaths.length} images \u2192 ${localMediaPaths.join(", ")}`);
+      console.log(`[zaloclaw] Downloaded ${localMediaPaths.length} attachment(s) \u2192 ${localMediaPaths.join(", ")}`);
     }
   } else if (!shouldProcessImages && message.mediaUrls && message.mediaUrls.length > 0) {
-    logVerbose(core, runtime2, `Skipping ${message.mediaUrls.length} image(s) in group ${chatId} (not mentioned)`);
+    logVerbose(core, runtime2, `Skipping ${message.mediaUrls.length} attachment(s) in group ${chatId} (not mentioned)`);
   }
   const effectiveLocalMediaPaths = localMediaPaths && localMediaPaths.length > 0 ? localMediaPaths : void 0;
-  let bodyForEnvelope = bodyWithSender;
-  if (shouldProcessImages) {
-    const mediaPathsForBody = effectiveLocalMediaPaths && effectiveLocalMediaPaths.length > 0 ? effectiveLocalMediaPaths : message.mediaUrls;
-    if (mediaPathsForBody && mediaPathsForBody.length > 0) {
-      const mediaInfo = mediaPathsForBody.map((p, idx) => `[Image ${idx + 1}: ${p}]`).join("\n");
-      bodyForEnvelope = `${bodyWithSender}
-
-${mediaInfo}`;
-    }
-  }
   const body = core.channel.reply.formatAgentEnvelope({
     channel: "Zalo JS",
     from: fromLabel,
     timestamp: timestamp ? timestamp * 1e3 : void 0,
     previousTimestamp,
     envelope: envelopeOptions,
-    body: bodyForEnvelope
+    body: bodyWithSender
   });
   const ctxPayload = core.channel.reply.finalizeInboundContext({
     Body: body,
@@ -1814,9 +2056,9 @@ ${mediaInfo}`;
     // Only attach media when mentioned (groups) or in DMs
     MediaPaths: shouldProcessImages && effectiveLocalMediaPaths && effectiveLocalMediaPaths.length > 0 ? effectiveLocalMediaPaths : void 0,
     MediaPath: shouldProcessImages && effectiveLocalMediaPaths && effectiveLocalMediaPaths.length > 0 ? effectiveLocalMediaPaths[0] : void 0,
-    MediaUrls: shouldProcessImages && effectiveLocalMediaPaths && effectiveLocalMediaPaths.length > 0 ? void 0 : shouldProcessImages ? message.mediaUrls : void 0,
-    MediaUrl: shouldProcessImages && effectiveLocalMediaPaths && effectiveLocalMediaPaths.length > 0 ? void 0 : shouldProcessImages ? message.mediaUrls?.[0] : void 0,
-    MediaTypes: shouldProcessImages ? message.mediaTypes : void 0
+    MediaUrls: void 0,
+    MediaUrl: void 0,
+    MediaTypes: shouldProcessImages && effectiveLocalMediaPaths && effectiveLocalMediaPaths.length > 0 ? message.mediaTypes : void 0
   });
   await core.channel.session.recordInboundSession({
     storePath,
@@ -2422,18 +2664,18 @@ async function monitorZaloClawProvider(options) {
       }
     }
   };
-  const runningPromise = new Promise((resolve3) => {
-    resolveRunning = resolve3;
+  const runningPromise = new Promise((resolve5) => {
+    resolveRunning = resolve5;
     abortSignal.addEventListener("abort", () => {
       stop();
-      resolve3();
+      resolve5();
     }, { once: true });
   });
   await startListener();
   await runningPromise;
   return { stop };
 }
-var ZALOJS_TEXT_LIMIT, nameCache, groupNameCache, NAME_CACHE_TTL, groupMessageBuffer, GROUP_BUFFER_MAX_MESSAGES, GROUP_BUFFER_MAX_AGE_S, lastInboundMessage, INBOUND_CACHE_MAX, processedMsgIds, DEDUP_TTL, DEDUP_MAX, THINKING_TAG_RE, REASONING_PREFIX;
+var ZALOJS_TEXT_LIMIT, nameCache, groupNameCache, NAME_CACHE_TTL, groupMessageBuffer, GROUP_BUFFER_MAX_MESSAGES, GROUP_BUFFER_MAX_AGE_S, lastInboundMessage, INBOUND_CACHE_MAX, processedMsgIds, DEDUP_TTL, DEDUP_MAX, SYSTEM_NOTIFICATION_PATTERNS, IMAGE_URL_RE, GENERIC_FILE_URL_RE, THINKING_TAG_RE, REASONING_PREFIX;
 var init_monitor = __esm({
   "src/channel/monitor.ts"() {
     "use strict";
@@ -2441,6 +2683,7 @@ var init_monitor = __esm({
     init_send();
     init_zalo_client();
     init_image_downloader();
+    init_file_downloader();
     init_friend_request_store();
     init_read_receipt();
     init_group_event();
@@ -2461,6 +2704,13 @@ var init_monitor = __esm({
     processedMsgIds = /* @__PURE__ */ new Map();
     DEDUP_TTL = 6e4;
     DEDUP_MAX = 2e3;
+    SYSTEM_NOTIFICATION_PATTERNS = [
+      /^Bạn vừa kết bạn với\b/i,
+      /^You (?:are|were) (?:now )?(?:friends|connected) with\b/i,
+      /^You just became friends with\b/i
+    ];
+    IMAGE_URL_RE = /\.(?:jpe?g|png|gif|webp|bmp|svg|tiff?)(?:[?#]|$)/i;
+    GENERIC_FILE_URL_RE = /\.(?:pdf|docx?|xlsx?|pptx?|csv|txt|zip|rar)(?:[?#]|$)/i;
     THINKING_TAG_RE = /^\s*<(?:think|thinking|thought|antthinking)\b[^>]*>/i;
     REASONING_PREFIX = "Reasoning:\n";
   }
@@ -2595,7 +2845,8 @@ var ZaloClawAccountSchema = z.object({
   // passiveCollector intentionally omitted from channel schema
   // Configure via plugins.entries.zaloclaw.passiveCollector (hidden from UI)
 });
-var ZaloClawConfigSchema = buildCatchallMultiAccountChannelSchema(ZaloClawAccountSchema);
+var ZaloClawAccountSchemaForSdk = ZaloClawAccountSchema;
+var ZaloClawConfigSchema = buildCatchallMultiAccountChannelSchema(ZaloClawAccountSchemaForSdk);
 var ZaloClawChannelConfigSchema = buildChannelConfigSchema(
   ZaloClawConfigSchema,
   {
@@ -2679,7 +2930,7 @@ import qrcode from "qrcode-terminal";
 import { PNG } from "pngjs";
 import jsQR from "jsqr";
 async function readQRFromPNG(pngPath) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve5, reject) => {
     try {
       const buffer = fs2.readFileSync(pngPath);
       const png = PNG.sync.read(buffer);
@@ -2688,7 +2939,7 @@ async function readQRFromPNG(pngPath) {
         reject(new Error("Could not decode QR code from image"));
         return;
       }
-      resolve3(code.data);
+      resolve5(code.data);
     } catch (err) {
       reject(new Error(`Failed to read QR code: ${err instanceof Error ? err.message : String(err)}`));
     }
@@ -3156,7 +3407,7 @@ function collectZaloClawStatusIssues() {
 // src/channel/channel.ts
 init_zalo_client();
 import { LoginQRCallbackEventType as LoginQRCallbackEventType3 } from "zca-js";
-import * as fs6 from "fs";
+import * as fs8 from "fs";
 import * as readline from "readline";
 var meta = {
   id: "zaloclaw",
@@ -3535,15 +3786,15 @@ var zaloClawPlugin = {
         runtime2.log("Login successful!");
         if (qrFilePath) {
           try {
-            fs6.unlinkSync(qrFilePath);
+            fs8.unlinkSync(qrFilePath);
           } catch {
           }
         }
         const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        const answer = await new Promise((resolve3) => {
+        const answer = await new Promise((resolve5) => {
           rl.question("\nRestart gateway now? (Required for certificate to be recognized) [Y/n]: ", (ans) => {
             rl.close();
-            resolve3(ans);
+            resolve5(ans);
           });
         });
         const shouldRestart = !answer || answer.toLowerCase() === "y" || answer.toLowerCase() === "yes";
@@ -3555,7 +3806,7 @@ var zaloClawPlugin = {
       } catch (err) {
         if (qrFilePath) {
           try {
-            fs6.unlinkSync(qrFilePath);
+            fs8.unlinkSync(qrFilePath);
           } catch {
           }
         }
@@ -3601,7 +3852,7 @@ var zaloClawPlugin = {
     sendMedia: async ({ to, text, mediaUrl, accountId, cfg }) => {
       const account = resolveZaloClawAccountSync({ cfg, accountId });
       let options = {};
-      if (mediaUrl && isLocalFilePath(mediaUrl) && fs6.existsSync(mediaUrl)) {
+      if (mediaUrl && isLocalFilePath(mediaUrl) && fs8.existsSync(mediaUrl)) {
         options.localPath = mediaUrl;
         options.caption = text;
       } else if (mediaUrl) {
@@ -3681,7 +3932,7 @@ var zaloClawPlugin = {
             qrDataUrl = `data:image/png;base64,${event.data.image}`;
           }
         });
-        await new Promise((resolve3) => setTimeout(resolve3, 3e3));
+        await new Promise((resolve5) => setTimeout(resolve5, 3e3));
         if (qrDataUrl) return { qrDataUrl, message: "Scan QR code with Zalo app" };
         await loginPromise2;
         return { message: "Login completed" };
@@ -3716,13 +3967,13 @@ import {
 } from "zca-js";
 
 // src/config/config-manager.ts
-import { readFileSync as readFileSync4, writeFileSync as writeFileSync5 } from "node:fs";
-import { homedir as homedir4 } from "node:os";
-import { join as join5 } from "node:path";
-var DEFAULT_CONFIG_PATH = join5(homedir4(), ".openclaw", "openclaw.json");
+import { readFileSync as readFileSync5, writeFileSync as writeFileSync6 } from "node:fs";
+import { homedir as homedir5 } from "node:os";
+import { join as join7 } from "node:path";
+var DEFAULT_CONFIG_PATH = join7(homedir5(), ".openclaw", "openclaw.json");
 function readOpenClawConfig(configPath = DEFAULT_CONFIG_PATH) {
   try {
-    const content = readFileSync4(configPath, "utf-8");
+    const content = readFileSync5(configPath, "utf-8");
     return JSON.parse(content);
   } catch (err) {
     throw new Error(`Failed to read config: ${err instanceof Error ? err.message : String(err)}`);
@@ -3731,7 +3982,7 @@ function readOpenClawConfig(configPath = DEFAULT_CONFIG_PATH) {
 function writeOpenClawConfig(config, configPath = DEFAULT_CONFIG_PATH) {
   try {
     const content = JSON.stringify(config, null, 2);
-    writeFileSync5(configPath, content, "utf-8");
+    writeFileSync6(configPath, content, "utf-8");
   } catch (err) {
     throw new Error(`Failed to write config: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -3833,38 +4084,38 @@ function setGroupRequireMention(config, groupId, requireMention) {
 init_friend_request_store();
 
 // src/safety/thread-sandbox.ts
-import * as fs7 from "fs";
-import * as path3 from "path";
-import * as os3 from "os";
-var WORKSPACE_BASE = path3.join(os3.homedir(), ".openclaw", "workspace", "threads");
+import * as fs9 from "fs";
+import * as path5 from "path";
+import * as os4 from "os";
+var WORKSPACE_BASE = path5.join(os4.homedir(), ".openclaw", "workspace", "threads");
 function validateLocalFilePath(filePath) {
   if (!filePath || typeof filePath !== "string") {
     throw new Error("File path is required");
   }
-  const resolved = path3.resolve(filePath);
+  const resolved = path5.resolve(filePath);
   if (filePath.includes("..")) {
     throw new Error(`Path traversal blocked: ".." not allowed in file paths`);
   }
-  const tmpDir = os3.tmpdir();
+  const tmpDir = os4.tmpdir();
   const allowedBases = [
-    path3.join(os3.homedir(), ".openclaw", "workspace"),
-    path3.join(os3.homedir(), ".openclaw", "media"),
+    path5.join(os4.homedir(), ".openclaw", "workspace"),
+    path5.join(os4.homedir(), ".openclaw", "media"),
     tmpDir,
     // Resolve /tmp symlinks (e.g., macOS /tmp → /private/tmp)
-    ...fs7.existsSync(tmpDir) ? [fs7.realpathSync(tmpDir)] : []
+    ...fs9.existsSync(tmpDir) ? [fs9.realpathSync(tmpDir)] : []
   ];
   const isAllowed = allowedBases.some(
-    (base) => resolved.startsWith(base + path3.sep) || resolved === base
+    (base) => resolved.startsWith(base + path5.sep) || resolved === base
   );
   if (!isAllowed) {
     throw new Error(
       `Access denied: ${filePath} is outside allowed directories. Only files in ~/.openclaw/workspace/, ~/.openclaw/media/, or system temp are allowed.`
     );
   }
-  if (fs7.existsSync(resolved)) {
-    const real = fs7.realpathSync(resolved);
+  if (fs9.existsSync(resolved)) {
+    const real = fs9.realpathSync(resolved);
     const isRealAllowed = allowedBases.some(
-      (base) => real.startsWith(base + path3.sep) || real === base
+      (base) => real.startsWith(base + path5.sep) || real === base
     );
     if (!isRealAllowed) {
       throw new Error(`Symlink escape blocked: ${filePath} resolves outside allowed directories`);
@@ -4861,8 +5112,23 @@ async function dispatch(p) {
       if (!p.groupId) throw new Error("groupId required");
       const gid = await resolveGroupId(p.groupId);
       const a = await api();
-      const res = await a.getGroupMembersInfo(gid);
-      return ok({ result: res });
+      const groupInfoResp = await a.getGroupInfo([gid]);
+      const groupInfo = groupInfoResp?.gridInfoMap?.[gid];
+      const memberIds = extractMemberIds(groupInfo);
+      const profiles = {};
+      const unchangedsProfile = [];
+      const batchSize = 40;
+      for (let i = 0; i < memberIds.length; i += batchSize) {
+        const batch = memberIds.slice(i, i + batchSize);
+        const res = await a.getGroupMembersInfo(batch);
+        Object.assign(profiles, res?.profiles ?? {});
+        unchangedsProfile.push(...res?.unchangeds_profile ?? []);
+      }
+      return ok({
+        groupId: gid,
+        totalMemberIds: memberIds.length,
+        result: { profiles, unchangeds_profile: unchangedsProfile }
+      });
     }
     case "join-group-link": {
       if (!p.link) throw new Error("link required");
