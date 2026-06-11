@@ -31,35 +31,77 @@ Connect your personal Zalo account to an AI agent with **147 full-featured actio
 
 ## Install
 
-> **⚠️ Disclaimer:** This project is **not affiliated with, endorsed by, or sponsored by Zalo or VNG Corporation.** Zalo does not provide an official API for personal accounts and [does not permit automation of personal accounts](https://zalo.vn/dieukhoan). This plugin operates via the reverse-engineered [`zca-js`](https://github.com/nicholasxuu/zca-js) library and **may violate Zalo's Terms of Service**, potentially leading to account suspension. Use at your own risk, for research and personal automation purposes only.
-
-**Via ClawHub _(recommended)_:**
-```bash
-openclaw plugins install clawhub:zaloclaw
-openclaw gateway restart
-openclaw channels login --channel zaloclaw
-# → Scan the QR code with your Zalo app
-```
-
-**Via npm:**
-```bash
-openclaw plugins install zaloclaw
-openclaw gateway restart
-openclaw channels login --channel zaloclaw
-```
-
-**Manual (clone):**
-```bash
-git clone https://github.com/monas-team/zaloclaw.git ~/zaloclaw
-cd ~/zaloclaw && npm install
-openclaw plugins install --link ~/zaloclaw   # required before channels login
-openclaw gateway restart
-openclaw channels login --channel zaloclaw
-```
-
-> **`channels login` troubleshooting:** If you see `Unsupported channel "zaloclaw"`, run `openclaw setup` instead — same QR flow, works on all OpenClaw versions. This usually means the plugin wasn't installed via `openclaw plugins install`.
+> **⚠️ Disclaimer:** This project is **not affiliated with, endorsed by, or sponsored by Zalo or VNG Corporation.** Zalo does not provide an official API for personal accounts and [does not permit automation of personal accounts](https://zalo.vn/dieukhoan). This plugin uses the reverse-engineered [`zca-js`](https://github.com/nicholasxuu/zca-js) library and **may violate Zalo’s Terms of Service**, potentially leading to account suspension. Use at your own risk.
 
 **Requirements:** OpenClaw ≥ 2026.2.0 · Node.js ≥ 22 · Personal Zalo account (not OA)
+
+---
+
+### Option A — ClawHub _(recommended)_
+
+```bash
+# 1. Install
+openclaw plugins install clawhub:zaloclaw
+
+# 2. Restart gateway
+openclaw gateway restart
+
+# 3. Login via QR
+openclaw channels login --channel zaloclaw
+```
+
+A QR code appears in the terminal. Open your **Zalo app → Personal page → QR icon** and scan it.
+
+After a successful scan:
+```bash
+openclaw status
+# Look for: ZaloClaw ✔  ON  connected
+```
+
+---
+
+### Option B — npm
+
+```bash
+# 1. Install
+openclaw plugins install zaloclaw
+
+# 2. Restart gateway
+openclaw gateway restart
+
+# 3. Login via QR
+openclaw channels login --channel zaloclaw
+```
+
+Same QR flow as Option A.
+
+---
+
+### Option C — Manual clone
+
+```bash
+# 1. Clone
+git clone https://github.com/monas-team/zaloclaw.git ~/zaloclaw
+cd ~/zaloclaw
+npm install          # install runtime dependencies
+                     # (no build needed — dist/ is pre-built)
+
+# 2. Register with OpenClaw  ← required before channels login
+openclaw plugins install --link ~/zaloclaw
+
+# 3. Restart gateway
+openclaw gateway restart
+
+# 4. Login via QR
+openclaw channels login --channel zaloclaw
+```
+
+---
+
+> **`channels login` not working?** If you see `Unsupported channel "zaloclaw"`, run `openclaw setup` instead — same QR flow, compatible with all OpenClaw versions.
+> This happens when the plugin was not registered via `openclaw plugins install`.
+
+> **Session expired?** Re-run `openclaw channels login --channel zaloclaw` and scan a new QR code.
 
 ### Features at a glance
 
@@ -84,35 +126,73 @@ Zalo (~75 triệu người dùng tại Việt Nam) **không có API bot cho tài
 
 ## Cài đặt
 
+**Yêu cầu:** OpenClaw ≥ 2026.2.0 · Node.js ≥ 22 · Tài khoản Zalo cá nhân (không phải OA)
+
+---
+
 ### Cách 1 — ClawHub _(khuyến nghị)_
 
 ```bash
+# 1. Cài plugin
 openclaw plugins install clawhub:zaloclaw
-openclaw gateway restart
-openclaw channels login --channel zaloclaw
-# → Quét QR code bằng app Zalo
-```
 
-### Cách 2 — Clone thủ công
-
-```bash
-git clone https://github.com/monas-team/zaloclaw.git /path/to/zaloclaw
-cd /path/to/zaloclaw && npm install
-openclaw plugins install --link /path/to/zaloclaw   # bắt buộc trước channels login
+# 2. Khởi động lại gateway
 openclaw gateway restart
+
+# 3. Đăng nhập bằng QR
 openclaw channels login --channel zaloclaw
 ```
 
-> **Lỗi `channels login`:** Nếu gặp `Unsupported channel "zaloclaw"`, chạy `openclaw setup` thay thế — cùng luồng QR, tương thích mọi phiên bản.
+Mã QR hiện ngay trên terminal. Mở **Zalo app → Trang cá nhân → icon QR** rồi quét.
 
-### Kiểm tra
-
+Sau khi quét thành công:
 ```bash
 openclaw status
-# ✓ zaloclaw → ON
+# ZaloClaw ✔  ON  connected
 ```
 
-**Yêu cầu:** OpenClaw ≥ 2026.2.0 · Node.js ≥ 22 · Tài khoản Zalo cá nhân
+---
+
+### Cách 2 — npm
+
+```bash
+# 1. Cài plugin
+openclaw plugins install zaloclaw
+
+# 2. Khởi động lại gateway
+openclaw gateway restart
+
+# 3. Đăng nhập bằng QR
+openclaw channels login --channel zaloclaw
+```
+
+QR flow giống Cách 1.
+
+---
+
+### Cách 3 — Clone thủ công
+
+```bash
+# 1. Clone và cài dependency
+git clone https://github.com/monas-team/zaloclaw.git ~/zaloclaw
+cd ~/zaloclaw
+npm install          # cài runtime deps (không cần build — dist/ đã có sẵn)
+
+# 2. Đăng ký với OpenClaw  ← bắt buộc trước channels login
+openclaw plugins install --link ~/zaloclaw
+
+# 3. Khởi động lại gateway
+openclaw gateway restart
+
+# 4. Đăng nhập bằng QR
+openclaw channels login --channel zaloclaw
+```
+
+---
+
+> **Lỗi `channels login`?** Nếu gặp `Unsupported channel "zaloclaw"`, chạy `openclaw setup` thay thế — cùng luồng QR, tương thích mọi phiên bản. Nguyên nhân: plugin chưa được đăng ký qua `openclaw plugins install`.
+
+> **Session hết hạn?** Chạy lại `openclaw channels login --channel zaloclaw` và quét QR mới.
 
 ---
 
