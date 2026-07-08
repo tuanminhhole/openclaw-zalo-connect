@@ -32,6 +32,7 @@ import { handleGroupEvent } from "../features/group-event.js";
 import { collectGroupMessage } from "../features/passive-collector.js";
 import { checkInjection } from "../features/injection-guard.js";
 import { recordMsgId, lookupCliMsgId } from "../features/msg-id-store.js";
+import { recordGroupId } from "../features/group-id-cache.js";
 import { refreshCredentials } from "../client/credentials.js";
 import { ThreadMessageQueue, type ThreadQueueEntry } from "./thread-queue.js";
 
@@ -637,6 +638,9 @@ async function processMessage(
   const senderId = metadata?.fromId ?? threadId;
   const senderName = metadata?.senderName ?? "";
   const chatId = threadId;
+
+  // Cache group ID so outbound.sendText can detect isGroup without API calls
+  if (isGroup) recordGroupId(chatId);
 
   // Global denylist check
   const configDenyFrom = (account.config.denyFrom ?? []).map((v) => String(v));

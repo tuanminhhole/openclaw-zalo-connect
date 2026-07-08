@@ -560,6 +560,21 @@ var init_send = __esm({
   }
 });
 
+// src/features/group-id-cache.ts
+function recordGroupId(id) {
+  if (id?.trim()) knownGroupIds.add(id.trim());
+}
+function isKnownGroupId(id) {
+  return knownGroupIds.has(id?.trim() ?? "");
+}
+var knownGroupIds;
+var init_group_id_cache = __esm({
+  "src/features/group-id-cache.ts"() {
+    "use strict";
+    knownGroupIds = /* @__PURE__ */ new Set();
+  }
+});
+
 // src/runtime/runtime.ts
 function setZaloClawRuntime(next) {
   runtime = next;
@@ -1832,6 +1847,7 @@ async function processMessage(message, account, config, core, runtime2, statusSi
   const senderId = metadata?.fromId ?? threadId;
   const senderName = metadata?.senderName ?? "";
   const chatId = threadId;
+  if (isGroup) recordGroupId(chatId);
   const configDenyFrom = (account.config.denyFrom ?? []).map((v) => String(v));
   if (configDenyFrom.length > 0 && isSenderDenied(senderId, configDenyFrom)) {
     logVerbose(core, runtime2, `Blocked denied sender ${senderId} via denyFrom`);
@@ -2707,6 +2723,7 @@ var init_monitor = __esm({
     init_passive_collector();
     init_injection_guard();
     init_msg_id_store();
+    init_group_id_cache();
     init_credentials();
     init_thread_queue();
     ZALOJS_TEXT_LIMIT = 2e3;
@@ -3405,6 +3422,7 @@ async function probeZaloClaw() {
 
 // src/channel/channel.ts
 init_send();
+init_group_id_cache();
 
 // src/runtime/status-issues.ts
 init_zalo_client();
@@ -3858,7 +3876,8 @@ var zaloClawPlugin = {
     textChunkLimit: 2e3,
     sendText: async ({ to, text, accountId, cfg }) => {
       const account = resolveZaloClawAccountSync({ cfg, accountId });
-      const result = await sendMessageZaloClaw(to, text);
+      const isGroup = isKnownGroupId(to);
+      const result = await sendMessageZaloClaw(to, text, { isGroup });
       return {
         channel: "zaloclaw",
         ok: result.ok,
@@ -3868,7 +3887,8 @@ var zaloClawPlugin = {
     },
     sendMedia: async ({ to, text, mediaUrl, accountId, cfg }) => {
       const account = resolveZaloClawAccountSync({ cfg, accountId });
-      let options = {};
+      const isGroup = isKnownGroupId(to);
+      let options = { isGroup };
       if (mediaUrl && isLocalFilePath(mediaUrl) && fs8.existsSync(mediaUrl)) {
         options.localPath = mediaUrl;
         options.caption = text;

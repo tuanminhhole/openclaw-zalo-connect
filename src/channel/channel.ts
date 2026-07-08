@@ -29,6 +29,7 @@ import { ZaloClawConfigSchema, ZaloClawChannelConfigSchema } from "../config/con
 import { zaloClawOnboardingAdapter } from "./onboarding.js";
 import { probeZaloClaw } from "./probe.js";
 import { sendMessageZaloClaw, isLocalFilePath } from "./send.js";
+import { isKnownGroupId } from "../features/group-id-cache.js";
 import { collectZaloClawStatusIssues } from "../runtime/status-issues.js";
 import { hasStoredCredentials, loginWithQR } from "../client/zalo-client.js";
 import { LoginQRCallbackEventType } from "zca-js";
@@ -496,7 +497,8 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
     textChunkLimit: 2000,
     sendText: async ({ to, text, accountId, cfg }) => {
       const account = resolveZaloClawAccountSync({ cfg, accountId });
-      const result = await sendMessageZaloClaw(to, text);
+      const isGroup = isKnownGroupId(to);
+      const result = await sendMessageZaloClaw(to, text, { isGroup });
       return {
         channel: "zaloclaw",
         ok: result.ok,
@@ -506,7 +508,8 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
     },
     sendMedia: async ({ to, text, mediaUrl, accountId, cfg }) => {
       const account = resolveZaloClawAccountSync({ cfg, accountId });
-      let options: any = {};
+      const isGroup = isKnownGroupId(to);
+      let options: any = { isGroup };
       if (mediaUrl && isLocalFilePath(mediaUrl) && fs.existsSync(mediaUrl)) {
         options.localPath = mediaUrl;
         options.caption = text;
