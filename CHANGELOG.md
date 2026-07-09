@@ -4,6 +4,14 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 Định dạng dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.4.5] — 2026-07-09
+
+### Tài liệu
+- **CHANGELOG**: Bổ sung đầy đủ entries cho v2.4.1–v2.4.4 — trước đó bị bỏ sót trong quá trình release nhanh
+- **openclaw.plugin.json / package.json**: Xác nhận đồng nhất toàn bộ `version`, `compat.pluginApi`, `minGatewayVersion` — tất cả đều là `2.4.5` / `>=2026.5.7`
+
+---
+
 ## [2.4.4] — 2026-07-09
 
 ### Sửa lỗi
