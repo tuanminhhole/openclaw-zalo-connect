@@ -45,6 +45,7 @@ import * as nodeFs from "node:fs";
 import * as nodePath from "node:path";
 import * as nodeOs from "node:os";
 import * as nodeCrypto from "node:crypto";
+import { recallGroupHistory, listPassiveGroups } from "../features/passive-collector.js";
 
 // ─── Result helper ───────────────────────────────────────────────────────────
 
@@ -296,6 +297,9 @@ const ACTIONS = [
   "group-mention",
   // Stranger messaging
   "send-to-stranger",
+  // Passive collector — local JSONL history recall
+  "recall-group-history",
+  "list-passive-groups",
 ] as const;
 
 // ─── TypeBox parameter schema ────────────────────────────────────────────────
@@ -1941,6 +1945,33 @@ async function dispatch(p: Params): Promise<ToolResult> {
       const a = await api();
       const res = await a.getFullAvatar(uid);
       return ok({ userId: uid, fullAvatar: res?.full_avatar, backgroundAvatar: res?.bk_full_avatar });
+    }
+
+    case "recall-group-history": {
+      // Recall passively-stored group messages from local JSONL log
+      // Files: ~/.openclaw/workspace/zaloclaw/passive/{groupId}.jsonl
+      const gid = p.groupId ?? p.threadId;
+      if (!gid) throw new Error("groupId or threadId required");
+      const records = recallGroupHistory({
+        groupId: gid,
+        limit: typeof p.count === "number" ? p.count : 50,
+        query: p.query,
+      });
+      if (records.length === 0) return ok({ groupId: gid, count: 0, messages: [], note: "No passive history found for this group." });
+      const messages = records.map(r => ({
+        ts: r.ts,
+        sender_name: r.sender_name,
+        sender_id: r.sender_id,
+        msg: r.msg,
+        ...(r.msg_id ? { msg_id: r.msg_id } : {}),
+      }));
+      return ok({ groupId: gid, count: messages.length, messages });
+    }
+
+    case "list-passive-groups": {
+      // List all groups with passive history logs
+      const groups = listPassiveGroups();
+      return ok({ count: groups.length, groups });
     }
 
     default:

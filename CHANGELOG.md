@@ -4,6 +4,22 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 Định dạng dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.4.0] — 2026-07-09
+
+### Thay đổi lớn (Breaking-free refactor)
+- **passive-collector**: Loại bỏ hoàn toàn phụ thuộc Elasticsearch — giờ lưu vào file JSONL local
+  - Storage: `~/.openclaw/workspace/zaloclaw/passive/{groupId}.jsonl`
+  - Format: text-visible, một JSON record mỗi dòng — đọc được bằng bất kỳ text editor / CLI tool
+  - Portable: hoạt động trên mọi OpenClaw install, không cần ES hay biến môi trường đặc biệt
+- **tool**: Thêm 2 action mới cho `zaloclaw` tool:
+  - `recall-group-history` — đọc lịch sử nhóm từ JSONL log (hỗ trợ `query`, `count`, `groupId`)
+  - `list-passive-groups` — liệt kê tất cả nhóm đang được ghi passive log
+- **monitor.ts**: `collectGroupMessage()` giờ là synchronous file append — không còn `await` + `.catch()`
+
+### Sửa lỗi
+- Xóa env var `OPENCLAW_ES_URL` / `ES_URL` không còn cần thiết
+- Passive log không còn phụ thuộc epistemic plugin
+
 ## [2.3.0] — 2026-07-09
 
 ### Sửa lỗi

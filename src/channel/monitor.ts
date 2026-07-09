@@ -1457,23 +1457,21 @@ export async function monitorZaloClawProvider(
         logVerbose(core, runtime, `[${account.accountId}] inbound message`);
         statusSink?.({ lastInboundAt: Date.now() });
 
-        // Passive collector: store group messages to oc_verbatim WITHOUT calling AI
+        // Passive collector: append group messages to JSONL file — no AI, no external services
         // Only runs if passiveCollector.enabled = true in config (default: false)
-        // Requires epistemic plugin + Elasticsearch at localhost:19200
+        // Files stored at: ~/.openclaw/workspace/zaloclaw/passive/{groupId}.jsonl
         // passiveCollector config is hidden under plugins.entries (not channel config UI)
         const _passiveEnabled = (config as any)?.plugins?.entries?.zaloclaw?.config?.passiveCollector?.enabled === true;
         const _passiveSenderId = converted.metadata?.fromId ?? "";
         // Guard: threadId may be undefined for recall/system events — skip if missing
         if (_passiveEnabled && converted.metadata?.isGroup && _passiveSenderId !== selfUid && converted.threadId) {
-          const _shortGroupId = converted.threadId.slice(0, 13);
           collectGroupMessage({
             groupId: converted.threadId,
             senderId: _passiveSenderId,
             senderName: converted.metadata?.senderName ?? _passiveSenderId,
             content: typeof converted.content === "string" ? converted.content : "",
             msgId: converted.msgId,
-            wing: `zaloclaw__${account.accountId}__group_${_shortGroupId}`,
-          }).catch(() => {}); // fire-and-forget, never block
+          }); // synchronous file append — fire-and-forget, silent mode by default
         }
 
         // Injection guard: check group messages for prompt injection before AI queue

@@ -1,21 +1,50 @@
 /**
  * Passive Group Message Collector
  *
- * Stores ALL group messages to oc_verbatim (Elasticsearch) WITHOUT calling AI.
- * Zero API cost — pure storage only.
+ * Stores ALL Zalo group messages to a JSONL log file — no AI calls, no external services.
  *
- * Schema matches existing oc_verbatim structure so verbatim_recall works
- * transparently across DM (AI-handled) and group (passively collected).
+ * Storage: ~/.openclaw/workspace/zaloclaw/passive/{groupId}.jsonl
+ * Format: one JSON record per line (JSONL — text-visible, zero dependency)
  *
- * turn_type = "passive" distinguishes these from AI-exchange turns.
+ * Design goals:
+ *  - Portable: works on any OpenClaw install with no extra setup
+ *  - Text-visible: files can be read with cat / grep / jq or the agent's read tool
+ *  - Zero API cost: pure file I/O, never triggers an AI turn
+ *  - Non-blocking: errors are swallowed in silent mode — never interrupts message flow
+ *
+ * turn_type = "passive" distinguishes these records from AI-exchange turns.
  */
 
-import { randomUUID } from "crypto";
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 
-// ES_URL can be overridden via environment variable for non-default deployments.
-// Priority: OPENCLAW_ES_URL → ES_URL → fallback localhost:19200
-const ES_URL = process.env.OPENCLAW_ES_URL ?? process.env.ES_URL ?? "http://localhost:19200";
-const INDEX = "oc_verbatim";
+/** Root directory for all passive logs. One .jsonl file per group. */
+export const PASSIVE_DIR = path.join(
+  os.homedir(),
+  ".openclaw",
+  "workspace",
+  "zaloclaw",
+  "passive",
+);
+
+/** One record per line in the JSONL file. */
+export interface PassiveRecord {
+  /** ISO-8601 UTC timestamp */
+  ts: string;
+  /** Zalo group ID */
+  group_id: string;
+  /** Sender's Zalo user ID */
+  sender_id: string;
+  /** Sender's display name */
+  sender_name: string;
+  /** Message text content */
+  msg: string;
+  /** Zalo message ID (optional) */
+  msg_id?: string;
+  /** turn_type marker — always "passive" */
+  turn_type: "passive";
+}
 
 export interface PassiveCollectorOptions {
   /** Group ID */
@@ -28,73 +57,105 @@ export interface PassiveCollectorOptions {
   content: string;
   /** Message ID from Zalo */
   msgId?: string;
-  /** Wing identifier, e.g. "zaloclaw" */
-  wing?: string;
   /** Suppress errors (default: true — never block message flow) */
   silent?: boolean;
 }
 
 /**
- * Store a single group message passively to oc_verbatim.
+ * Append a single group message to the group's JSONL log.
  * Call this BEFORE the mention check — runs fire-and-forget.
  */
-export async function collectGroupMessage(opts: PassiveCollectorOptions): Promise<void> {
-  const {
-    groupId,
-    senderId,
-    senderName,
-    content,
-    msgId,
-    wing = "zaloclaw",
-    silent = true,
-  } = opts;
+export function collectGroupMessage(opts: PassiveCollectorOptions): void {
+  const { groupId, senderId, senderName, content, msgId, silent = true } = opts;
 
   if (!content?.trim()) return;
 
-  const nowUtc = new Date();
-  // Pre-format display_time in Asia/Ho_Chi_Minh for direct use without conversion
-  const _dtParts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Ho_Chi_Minh',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour12: false,
-  }).formatToParts(nowUtc).reduce((acc: Record<string, string>, p) => { acc[p.type] = p.value; return acc; }, {});
-  const display_time = `${_dtParts.hour}:${_dtParts.minute}:${_dtParts.second} - ${_dtParts.day}/${_dtParts.month}/${_dtParts.year}`;
-
-  const doc = {
-    id: randomUUID(),
-    wing,
-    channel: "zaloclaw",
-    author_id: senderId,
-    author_name: senderName,
-    sender_id: senderId,
-    user_message: content,
-    bot_response: null,
-    group_id: groupId,
-    message_id: msgId ?? null,
-    turn_type: "passive",          // distinguish from AI-exchange turns
-    timestamp: nowUtc.toISOString(), // canonical UTC — never change
-    display_time,                    // pre-formatted GMT+7: HH:mm:ss - dd/MM/yyyy
-    word_count_user: content.split(/\s+/).filter(Boolean).length,
-    word_count_bot: 0,
-    user_msg_len: content.length,
-    bot_msg_len: 0,
-    has_code: /```/.test(content),
-    language: "vi",
-  };
-
   try {
-    const res = await fetch(`${ES_URL}/${INDEX}/_doc/${doc.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(doc),
-    });
-    if (!res.ok && !silent) {
-      const err = await res.text();
-      throw new Error(`ES store failed: ${res.status} ${err}`);
-    }
+    fs.mkdirSync(PASSIVE_DIR, { recursive: true });
+
+    const record: PassiveRecord = {
+      ts: new Date().toISOString(),
+      group_id: groupId,
+      sender_id: senderId,
+      sender_name: senderName,
+      msg: content,
+      turn_type: "passive",
+      ...(msgId ? { msg_id: msgId } : {}),
+    };
+
+    const filePath = path.join(PASSIVE_DIR, `${groupId}.jsonl`);
+    fs.appendFileSync(filePath, JSON.stringify(record) + "\n", "utf-8");
   } catch (err) {
     if (!silent) throw err;
     // silent mode: swallow errors — never block message flow
   }
+}
+
+/**
+ * Read and optionally filter records from a group's JSONL log.
+ *
+ * @param groupId  - Zalo group ID (maps to {groupId}.jsonl)
+ * @param limit    - Max records to return (newest first). Default: 50.
+ * @param query    - Optional keyword filter (case-insensitive, matches msg or sender_name).
+ * @returns Array of matching PassiveRecord objects, newest first.
+ */
+export function recallGroupHistory(params: {
+  groupId: string;
+  limit?: number;
+  query?: string;
+}): PassiveRecord[] {
+  const { groupId, limit = 50, query } = params;
+  const filePath = path.join(PASSIVE_DIR, `${groupId}.jsonl`);
+
+  if (!fs.existsSync(filePath)) return [];
+
+  const lines = fs.readFileSync(filePath, "utf-8").split("\n").filter(Boolean);
+  let records: PassiveRecord[] = [];
+
+  for (const line of lines) {
+    try {
+      records.push(JSON.parse(line) as PassiveRecord);
+    } catch {
+      // skip malformed lines
+    }
+  }
+
+  // Filter by keyword if provided
+  if (query) {
+    const q = query.toLowerCase();
+    records = records.filter(
+      (r) =>
+        r.msg.toLowerCase().includes(q) ||
+        r.sender_name.toLowerCase().includes(q),
+    );
+  }
+
+  // Return newest first, capped at limit
+  return records.reverse().slice(0, limit);
+}
+
+/**
+ * List all groups that have a passive log file.
+ * Returns array of { groupId, recordCount, lastTs }.
+ */
+export function listPassiveGroups(): Array<{
+  groupId: string;
+  recordCount: number;
+  lastTs: string | null;
+}> {
+  if (!fs.existsSync(PASSIVE_DIR)) return [];
+
+  const files = fs.readdirSync(PASSIVE_DIR).filter((f) => f.endsWith(".jsonl"));
+
+  return files.map((filename) => {
+    const groupId = filename.replace(/\.jsonl$/, "");
+    const filePath = path.join(PASSIVE_DIR, filename);
+    const lines = fs.readFileSync(filePath, "utf-8").split("\n").filter(Boolean);
+    let lastTs: string | null = null;
+    try {
+      const last = JSON.parse(lines[lines.length - 1]) as Partial<PassiveRecord>;
+      lastTs = last.ts ?? null;
+    } catch { /* ignore */ }
+    return { groupId, recordCount: lines.length, lastTs };
+  });
 }

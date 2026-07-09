@@ -1022,77 +1022,76 @@ var init_group_event = __esm({
 });
 
 // src/features/passive-collector.ts
-import { randomUUID } from "crypto";
-async function collectGroupMessage(opts) {
-  const {
-    groupId,
-    senderId,
-    senderName,
-    content,
-    msgId,
-    wing = "zaloclaw",
-    silent = true
-  } = opts;
+import * as fs7 from "fs";
+import * as path4 from "path";
+import * as os4 from "os";
+function collectGroupMessage(opts) {
+  const { groupId, senderId, senderName, content, msgId, silent = true } = opts;
   if (!content?.trim()) return;
-  const nowUtc = /* @__PURE__ */ new Date();
-  const _dtParts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Ho_Chi_Minh",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour12: false
-  }).formatToParts(nowUtc).reduce((acc, p) => {
-    acc[p.type] = p.value;
-    return acc;
-  }, {});
-  const display_time = `${_dtParts.hour}:${_dtParts.minute}:${_dtParts.second} - ${_dtParts.day}/${_dtParts.month}/${_dtParts.year}`;
-  const doc = {
-    id: randomUUID(),
-    wing,
-    channel: "zaloclaw",
-    author_id: senderId,
-    author_name: senderName,
-    sender_id: senderId,
-    user_message: content,
-    bot_response: null,
-    group_id: groupId,
-    message_id: msgId ?? null,
-    turn_type: "passive",
-    // distinguish from AI-exchange turns
-    timestamp: nowUtc.toISOString(),
-    // canonical UTC — never change
-    display_time,
-    // pre-formatted GMT+7: HH:mm:ss - dd/MM/yyyy
-    word_count_user: content.split(/\s+/).filter(Boolean).length,
-    word_count_bot: 0,
-    user_msg_len: content.length,
-    bot_msg_len: 0,
-    has_code: /```/.test(content),
-    language: "vi"
-  };
   try {
-    const res = await fetch(`${ES_URL}/${INDEX}/_doc/${doc.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(doc)
-    });
-    if (!res.ok && !silent) {
-      const err = await res.text();
-      throw new Error(`ES store failed: ${res.status} ${err}`);
-    }
+    fs7.mkdirSync(PASSIVE_DIR, { recursive: true });
+    const record = {
+      ts: (/* @__PURE__ */ new Date()).toISOString(),
+      group_id: groupId,
+      sender_id: senderId,
+      sender_name: senderName,
+      msg: content,
+      turn_type: "passive",
+      ...msgId ? { msg_id: msgId } : {}
+    };
+    const filePath = path4.join(PASSIVE_DIR, `${groupId}.jsonl`);
+    fs7.appendFileSync(filePath, JSON.stringify(record) + "\n", "utf-8");
   } catch (err) {
     if (!silent) throw err;
   }
 }
-var ES_URL, INDEX;
+function recallGroupHistory(params) {
+  const { groupId, limit = 50, query } = params;
+  const filePath = path4.join(PASSIVE_DIR, `${groupId}.jsonl`);
+  if (!fs7.existsSync(filePath)) return [];
+  const lines = fs7.readFileSync(filePath, "utf-8").split("\n").filter(Boolean);
+  let records = [];
+  for (const line of lines) {
+    try {
+      records.push(JSON.parse(line));
+    } catch {
+    }
+  }
+  if (query) {
+    const q = query.toLowerCase();
+    records = records.filter(
+      (r) => r.msg.toLowerCase().includes(q) || r.sender_name.toLowerCase().includes(q)
+    );
+  }
+  return records.reverse().slice(0, limit);
+}
+function listPassiveGroups() {
+  if (!fs7.existsSync(PASSIVE_DIR)) return [];
+  const files = fs7.readdirSync(PASSIVE_DIR).filter((f) => f.endsWith(".jsonl"));
+  return files.map((filename) => {
+    const groupId = filename.replace(/\.jsonl$/, "");
+    const filePath = path4.join(PASSIVE_DIR, filename);
+    const lines = fs7.readFileSync(filePath, "utf-8").split("\n").filter(Boolean);
+    let lastTs = null;
+    try {
+      const last = JSON.parse(lines[lines.length - 1]);
+      lastTs = last.ts ?? null;
+    } catch {
+    }
+    return { groupId, recordCount: lines.length, lastTs };
+  });
+}
+var PASSIVE_DIR;
 var init_passive_collector = __esm({
   "src/features/passive-collector.ts"() {
     "use strict";
-    ES_URL = process.env.OPENCLAW_ES_URL ?? process.env.ES_URL ?? "http://localhost:19200";
-    INDEX = "oc_verbatim";
+    PASSIVE_DIR = path4.join(
+      os4.homedir(),
+      ".openclaw",
+      "workspace",
+      "zaloclaw",
+      "passive"
+    );
   }
 });
 
@@ -1413,8 +1412,8 @@ import { createReplyPrefixOptions, createTypingCallbacks } from "openclaw/plugin
 import { logTypingFailure, logAckFailure } from "openclaw/plugin-sdk/channel-feedback";
 import { mergeAllowlist, summarizeMapping } from "openclaw/plugin-sdk/allow-from";
 import { ThreadType as ThreadType2, FriendEventType, Reactions } from "zca-js";
-import * as fs7 from "fs";
-import * as path4 from "path";
+import * as fs8 from "fs";
+import * as path5 from "path";
 import * as crypto4 from "crypto";
 import sharp2 from "sharp";
 function resolveMentionGatingWithBypass(params) {
@@ -1503,14 +1502,14 @@ function looksLikeExplicitFileObject(obj, url) {
 }
 function fileSha256(filePath) {
   try {
-    return crypto4.createHash("sha256").update(fs7.readFileSync(filePath)).digest("hex");
+    return crypto4.createHash("sha256").update(fs8.readFileSync(filePath)).digest("hex");
   } catch {
     return void 0;
   }
 }
 function looksLikeHtmlFile(filePath) {
   try {
-    const head = fs7.readFileSync(filePath).subarray(0, 512).toString("utf8").trim().toLowerCase();
+    const head = fs8.readFileSync(filePath).subarray(0, 512).toString("utf8").trim().toLowerCase();
     return head.includes("<!doctype") || head.includes("<html") || head.includes("<head");
   } catch {
     return false;
@@ -1669,18 +1668,18 @@ function renameFilesFromMessageContent(messageText, localPaths) {
     const targetName = i < matches.length ? matches[i] : void 0;
     if (targetName && !usedNames.has(targetName)) {
       const safeName = targetName.replace(/[\/\\]/g, "_").substring(0, 120);
-      const dir = path4.dirname(fp);
-      const newPath = path4.join(dir, safeName);
+      const dir = path5.dirname(fp);
+      const newPath = path5.join(dir, safeName);
       try {
         let finalPath = newPath;
         let counter = 1;
-        while (fs7.existsSync(finalPath)) {
-          const ext = path4.extname(safeName);
-          const base = path4.basename(safeName, ext);
-          finalPath = path4.join(dir, `${base}_${counter}${ext}`);
+        while (fs8.existsSync(finalPath)) {
+          const ext = path5.extname(safeName);
+          const base = path5.basename(safeName, ext);
+          finalPath = path5.join(dir, `${base}_${counter}${ext}`);
           counter++;
         }
-        fs7.renameSync(fp, finalPath);
+        fs8.renameSync(fp, finalPath);
         console.log(`[zaloclaw] Renamed ${fp} \u2192 ${finalPath}`);
         renamed.push(finalPath);
         usedNames.add(safeName);
@@ -1793,7 +1792,7 @@ async function downloadInboundMedia(message) {
     const hash = fileSha256(localPath);
     if (hash && seenHashes.has(hash)) {
       try {
-        fs7.rmSync(localPath, { force: true });
+        fs8.rmSync(localPath, { force: true });
       } catch {
       }
       continue;
@@ -2578,15 +2577,12 @@ async function monitorZaloClawProvider(options) {
         const _passiveEnabled = config?.plugins?.entries?.zaloclaw?.config?.passiveCollector?.enabled === true;
         const _passiveSenderId = converted.metadata?.fromId ?? "";
         if (_passiveEnabled && converted.metadata?.isGroup && _passiveSenderId !== selfUid && converted.threadId) {
-          const _shortGroupId = converted.threadId.slice(0, 13);
           collectGroupMessage({
             groupId: converted.threadId,
             senderId: _passiveSenderId,
             senderName: converted.metadata?.senderName ?? _passiveSenderId,
             content: typeof converted.content === "string" ? converted.content : "",
-            msgId: converted.msgId,
-            wing: `zaloclaw__${account.accountId}__group_${_shortGroupId}`
-          }).catch(() => {
+            msgId: converted.msgId
           });
         }
         if (converted.metadata?.isGroup && typeof converted.content === "string" && converted.threadId) {
@@ -3448,7 +3444,7 @@ function collectZaloClawStatusIssues() {
 // src/channel/channel.ts
 init_zalo_client();
 import { LoginQRCallbackEventType as LoginQRCallbackEventType3 } from "zca-js";
-import * as fs8 from "fs";
+import * as fs9 from "fs";
 import * as readline from "readline";
 var meta = {
   id: "zaloclaw",
@@ -3827,7 +3823,7 @@ var zaloClawPlugin = {
         runtime2.log("Login successful!");
         if (qrFilePath) {
           try {
-            fs8.unlinkSync(qrFilePath);
+            fs9.unlinkSync(qrFilePath);
           } catch {
           }
         }
@@ -3847,7 +3843,7 @@ var zaloClawPlugin = {
       } catch (err) {
         if (qrFilePath) {
           try {
-            fs8.unlinkSync(qrFilePath);
+            fs9.unlinkSync(qrFilePath);
           } catch {
           }
         }
@@ -3895,7 +3891,7 @@ var zaloClawPlugin = {
       const account = resolveZaloClawAccountSync({ cfg, accountId });
       const isGroup = isKnownGroupId(to);
       let options = { isGroup };
-      if (mediaUrl && isLocalFilePath(mediaUrl) && fs8.existsSync(mediaUrl)) {
+      if (mediaUrl && isLocalFilePath(mediaUrl) && fs9.existsSync(mediaUrl)) {
         options.localPath = mediaUrl;
         options.caption = text;
       } else if (mediaUrl) {
@@ -4010,13 +4006,13 @@ import {
 } from "zca-js";
 
 // src/config/config-manager.ts
-import { readFileSync as readFileSync5, writeFileSync as writeFileSync6 } from "node:fs";
-import { homedir as homedir5 } from "node:os";
-import { join as join7 } from "node:path";
-var DEFAULT_CONFIG_PATH = join7(homedir5(), ".openclaw", "openclaw.json");
+import { readFileSync as readFileSync6, writeFileSync as writeFileSync6 } from "node:fs";
+import { homedir as homedir6 } from "node:os";
+import { join as join8 } from "node:path";
+var DEFAULT_CONFIG_PATH = join8(homedir6(), ".openclaw", "openclaw.json");
 function readOpenClawConfig(configPath = DEFAULT_CONFIG_PATH) {
   try {
-    const content = readFileSync5(configPath, "utf-8");
+    const content = readFileSync6(configPath, "utf-8");
     return JSON.parse(content);
   } catch (err) {
     throw new Error(`Failed to read config: ${err instanceof Error ? err.message : String(err)}`);
@@ -4127,38 +4123,38 @@ function setGroupRequireMention(config, groupId, requireMention) {
 init_friend_request_store();
 
 // src/safety/thread-sandbox.ts
-import * as fs9 from "fs";
-import * as path5 from "path";
-import * as os4 from "os";
-var WORKSPACE_BASE = path5.join(os4.homedir(), ".openclaw", "workspace", "threads");
+import * as fs10 from "fs";
+import * as path6 from "path";
+import * as os5 from "os";
+var WORKSPACE_BASE = path6.join(os5.homedir(), ".openclaw", "workspace", "threads");
 function validateLocalFilePath(filePath) {
   if (!filePath || typeof filePath !== "string") {
     throw new Error("File path is required");
   }
-  const resolved = path5.resolve(filePath);
+  const resolved = path6.resolve(filePath);
   if (filePath.includes("..")) {
     throw new Error(`Path traversal blocked: ".." not allowed in file paths`);
   }
-  const tmpDir = os4.tmpdir();
+  const tmpDir = os5.tmpdir();
   const allowedBases = [
-    path5.join(os4.homedir(), ".openclaw", "workspace"),
-    path5.join(os4.homedir(), ".openclaw", "media"),
+    path6.join(os5.homedir(), ".openclaw", "workspace"),
+    path6.join(os5.homedir(), ".openclaw", "media"),
     tmpDir,
     // Resolve /tmp symlinks (e.g., macOS /tmp → /private/tmp)
-    ...fs9.existsSync(tmpDir) ? [fs9.realpathSync(tmpDir)] : []
+    ...fs10.existsSync(tmpDir) ? [fs10.realpathSync(tmpDir)] : []
   ];
   const isAllowed = allowedBases.some(
-    (base) => resolved.startsWith(base + path5.sep) || resolved === base
+    (base) => resolved.startsWith(base + path6.sep) || resolved === base
   );
   if (!isAllowed) {
     throw new Error(
       `Access denied: ${filePath} is outside allowed directories. Only files in ~/.openclaw/workspace/, ~/.openclaw/media/, or system temp are allowed.`
     );
   }
-  if (fs9.existsSync(resolved)) {
-    const real = fs9.realpathSync(resolved);
+  if (fs10.existsSync(resolved)) {
+    const real = fs10.realpathSync(resolved);
     const isRealAllowed = allowedBases.some(
-      (base) => real.startsWith(base + path5.sep) || real === base
+      (base) => real.startsWith(base + path6.sep) || real === base
     );
     if (!isRealAllowed) {
       throw new Error(`Symlink escape blocked: ${filePath} resolves outside allowed directories`);
@@ -4170,6 +4166,7 @@ function validateLocalFilePath(filePath) {
 // src/tools/tool.ts
 init_url_validator();
 init_mention_parser();
+init_passive_collector();
 import * as nodeFs from "node:fs";
 import * as nodePath from "node:path";
 import * as nodeOs from "node:os";
@@ -4395,7 +4392,10 @@ var ACTIONS = [
   "list-blocked-in-group",
   "group-mention",
   // Stranger messaging
-  "send-to-stranger"
+  "send-to-stranger",
+  // Passive collector — local JSONL history recall
+  "recall-group-history",
+  "list-passive-groups"
 ];
 function stringEnum(values, opts = {}) {
   return Type.Unsafe({
@@ -5867,6 +5867,28 @@ async function dispatch(p) {
       const a = await api();
       const res = await a.getFullAvatar(uid);
       return ok({ userId: uid, fullAvatar: res?.full_avatar, backgroundAvatar: res?.bk_full_avatar });
+    }
+    case "recall-group-history": {
+      const gid = p.groupId ?? p.threadId;
+      if (!gid) throw new Error("groupId or threadId required");
+      const records = recallGroupHistory({
+        groupId: gid,
+        limit: typeof p.count === "number" ? p.count : 50,
+        query: p.query
+      });
+      if (records.length === 0) return ok({ groupId: gid, count: 0, messages: [], note: "No passive history found for this group." });
+      const messages = records.map((r) => ({
+        ts: r.ts,
+        sender_name: r.sender_name,
+        sender_id: r.sender_id,
+        msg: r.msg,
+        ...r.msg_id ? { msg_id: r.msg_id } : {}
+      }));
+      return ok({ groupId: gid, count: messages.length, messages });
+    }
+    case "list-passive-groups": {
+      const groups = listPassiveGroups();
+      return ok({ count: groups.length, groups });
     }
     default:
       return ok({ error: true, message: `Unknown action: ${p.action}` });
