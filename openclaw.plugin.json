@@ -2,7 +2,7 @@
   "id": "zaloclaw",
   "name": "ZaloClaw",
   "description": "Zalo personal account messaging for OpenClaw via zca-js. Connect your personal Zalo account as a fully-featured AI agent channel with 147 actions.",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "author": "monas-team",
   "license": "MIT",
   "homepage": "https://github.com/monas-team/zaloclaw",
@@ -405,29 +405,26 @@
   },
   "configSchema": {
     "type": "object",
+    "additionalProperties": false,
     "properties": {
       "passiveCollector": {
         "type": "object",
-        "description": "Settings for the passive group message collector (stores all group messages to Elasticsearch without calling AI).",
+        "description": "Passive group message collector. Appends all group messages to a local JSONL file — no external services required.",
         "properties": {
           "enabled": {
             "type": "boolean",
-            "description": "Enable passive collection of group messages to oc_verbatim. Default: false."
-          },
-          "esUrl": {
-            "type": "string",
-            "description": "Elasticsearch URL override. Defaults to OPENCLAW_ES_URL env var, then ES_URL, then http://localhost:19200."
+            "description": "Enable passive collection of group messages. Files stored at ~/.openclaw/workspace/zaloclaw/passive/{groupId}.jsonl. Default: false."
           }
         },
         "additionalProperties": false
       },
       "injectionGuard": {
         "type": "object",
-        "description": "Settings for the prompt injection guard.",
+        "description": "Prompt injection detection for group chats.",
         "properties": {
           "autoRemove": {
             "type": "boolean",
-            "description": "If true, auto-remove members who exceed the injection block threshold. Default: false (warn only)."
+            "description": "Auto-remove members who exceed the injection block threshold. Default: false (warn only)."
           }
         },
         "additionalProperties": false
@@ -438,5 +435,12 @@
     "tools": [
       "zaloclaw"
     ]
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "compat": {
+    "pluginApi": ">=2026.2.0",
+    "minGatewayVersion": "2026.2.0"
   }
 }
