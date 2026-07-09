@@ -4,6 +4,42 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 Định dạng dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.4.4] — 2026-07-09
+
+### Sửa lỗi
+- **package.json / openclaw.plugin.json**: Đồng bộ `minGatewayVersion` lên `>=2026.5.7` — trước đây vẫn ghi `>=2026.2.0` trong khi README/guide đã nói `>=2026.5.7`. Lỗi được phát hiện bởi bé Mi (Ươm Mầm) trong quá trình review tài liệu.
+
+---
+
+## [2.4.3] — 2026-07-09
+
+### Tài liệu
+- **docs/guide.md**: Thêm hướng dẫn cài đặt & cấu hình chi tiết từ zero — prerequisites, QR login, config đầy đủ, passive collector, group events, injection guard, troubleshooting
+
+---
+
+## [2.4.2] — 2026-07-09
+
+### Tài liệu (tái cấu trúc)
+- **Xóa**: `TOOLS.md`, `docs/FEATURES.md`, `docs/agent-help.md`, `docs/agent-install.md` — ~3500 dòng nội dung chồng chéo và lỗi thời
+- **Viết lại**: `README.md` — gọn ~180 dòng, cập nhật cho v2.4.x, link đến docs mới
+- **Thêm**: `docs/actions.md` — reference đầy đủ 151 actions theo nhóm, có params và ví dụ
+- **Sửa**: `CONTRIBUTING.md` — URL sai (`monasprox` → `monas-team`), rút gọn
+- **Sửa**: Số lượng action: 147 → 151 (bao gồm `recall-group-history`, `list-passive-groups` và các action mới)
+
+---
+
+## [2.4.1] — 2026-07-09
+
+### Sửa lỗi (manifest)
+- **openclaw.plugin.json**: Xóa `esUrl` khỏi `passiveCollector` config schema — ES không còn dùng từ v2.4.0
+- **openclaw.plugin.json**: Cập nhật mô tả `passiveCollector` sang JSONL file storage
+- **openclaw.plugin.json**: Thêm `activation.onStartup: true` theo yêu cầu docs OpenClaw
+- **openclaw.plugin.json**: Thêm `compat` field
+- **Install ledger**: Cập nhật version metadata lên 2.4.x
+
+---
+
 ## [2.4.0] — 2026-07-09
 
 ### Thay đổi lớn (Breaking-free refactor)
