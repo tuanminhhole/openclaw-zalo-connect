@@ -3991,9 +3991,6 @@ var zaloClawPlugin = {
   }
 };
 
-// index.ts
-init_runtime();
-
 // src/tools/tool.ts
 init_zalo_client();
 init_msg_id_store();
@@ -5895,7 +5892,39 @@ async function dispatch(p) {
   }
 }
 
+// src/runtime/bridge.ts
+init_zalo_client();
+var seq = 0;
+function createBridgeService() {
+  return {
+    version: 1,
+    async getStatus() {
+      return {
+        connected: isAuthenticated(),
+        accountId: getCurrentUid() ?? void 0,
+        channel: "zaloclaw"
+      };
+    },
+    async listActions() {
+      return [...ACTIONS];
+    },
+    async executeAction(_accountId, action) {
+      if (!action || typeof action.action !== "string" || action.action.length === 0) {
+        throw new Error("bridge executeAction: missing action name");
+      }
+      const result = await executeZaloClawTool(`bridge-${++seq}`, action);
+      return result.details ?? result;
+    }
+  };
+}
+function exposeBridgeService() {
+  const service = createBridgeService();
+  globalThis.__zaloclawBridgeService = service;
+  return service;
+}
+
 // index.ts
+init_runtime();
 var plugin = {
   id: "zaloclaw",
   name: "ZaloClaw",
@@ -5911,6 +5940,7 @@ var plugin = {
       parameters: ZaloClawToolSchema,
       execute: executeZaloClawTool
     });
+    exposeBridgeService();
   }
 };
 var index_default = plugin;

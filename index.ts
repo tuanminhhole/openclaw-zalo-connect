@@ -1,6 +1,7 @@
 import type { AnyAgentTool, OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
 import { zaloClawPlugin } from "./src/channel/channel.js";
+import { exposeBridgeService } from "./src/runtime/bridge.js";
 import { setZaloClawRuntime } from "./src/runtime/runtime.js";
 import { ZaloClawToolSchema, executeZaloClawTool } from "./src/tools/tool.js";
 
@@ -48,6 +49,11 @@ const plugin = {
       parameters: ZaloClawToolSchema,
       execute: executeZaloClawTool,
     } as AnyAgentTool);
+
+    // Expose a stable bridge for sibling plugins (dashboards, moderation
+    // layers) to execute actions programmatically — same params as the agent
+    // tool. Documented handshake; avoids plugins importing bundled internals.
+    exposeBridgeService();
   },
 };
 
