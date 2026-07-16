@@ -7,10 +7,10 @@ export interface ProbeResult {
   error?: string;
 }
 
-export async function probeZaloClaw(): Promise<ProbeResult> {
+export async function probeZaloConnect(accountId?: string | null): Promise<ProbeResult> {
   try {
-    const api = await getApi();
-    const uid = getCurrentUid();
+    const api = await getApi(accountId);
+    const uid = getCurrentUid(accountId);
     if (!uid) return { ok: false, error: "Not logged in" };
 
     const userInfo = await api.getUserInfo(uid);

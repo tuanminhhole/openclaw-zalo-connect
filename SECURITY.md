@@ -4,14 +4,14 @@
 
 | Phiên bản | Hỗ trợ |
 |---------|-----------|
-| 2.x     | ✅        |
-| < 2.0   | ❌        |
+| 3.x     | ✅        |
+| < 3.0   | ❌        |
 
 ## Báo cáo lỗ hổng bảo mật
 
 **KHÔNG mở issue công khai cho lỗ hổng bảo mật.**
 
-Email: monasprox@users.noreply.github.com
+Email: tuanminhhole@users.noreply.github.com
 
 Vui lòng bao gồm:
 - Mô tả lỗ hổng

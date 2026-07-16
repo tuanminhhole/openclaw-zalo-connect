@@ -17,14 +17,14 @@ function resolveMentionGatingWithBypass(params: {
 }
 
 import { ThreadType, FriendEventType, Reactions, type API, type Message, type UserMessage, type GroupMessage, type FriendEvent, type Reaction, type Typing, type SendMessageQuote } from "zca-js";
-import type { ResolvedZaloClawAccount, ZaloClawFriend, ZaloClawGroup, ZaloClawMessage } from "../runtime/types.js";
-import { getZaloClawRuntime } from "../runtime/runtime.js";
-import { sendMessageZaloClaw } from "./send.js";
+import type { ResolvedZaloConnectAccount, ZaloConnectFriend, ZaloConnectGroup, ZaloConnectMessage } from "../runtime/types.js";
+import { getZaloConnectRuntime } from "../runtime/runtime.js";
+import { sendMessageZaloConnect } from "./send.js";
 import { getApi, getCurrentUid } from "../client/zalo-client.js";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
-import sharp from "sharp";
+import { readImageMetadata } from "../media/image-metadata.js";
 import { downloadImageFromUrl } from "./image-downloader.js";
 import { downloadFileFromUrl } from "./file-downloader.js";
 import { addPendingRequest, removePendingRequest } from "../client/friend-request-store.js";
@@ -36,16 +36,18 @@ import { recordMsgId, lookupCliMsgId } from "../features/msg-id-store.js";
 import { recordGroupId } from "../features/group-id-cache.js";
 import { refreshCredentials } from "../client/credentials.js";
 import { ThreadMessageQueue, type ThreadQueueEntry } from "./thread-queue.js";
+import { getRuntimeGroupPolicy } from "../runtime/group-policy.js";
+import { publishBridgeInbound } from "../runtime/bridge.js";
 
-export type ZaloClawMonitorOptions = {
-  account: ResolvedZaloClawAccount;
+export type ZaloConnectMonitorOptions = {
+  account: ResolvedZaloConnectAccount;
   config: OpenClawConfig;
   runtime: RuntimeEnv;
   abortSignal: AbortSignal;
   statusSink?: (patch: { lastInboundAt?: number; lastOutboundAt?: number }) => void;
 };
 
-export type ZaloClawMonitorResult = {
+export type ZaloConnectMonitorResult = {
   stop: () => void;
 };
 
@@ -58,6 +60,7 @@ const NAME_CACHE_TTL = 60 * 60 * 1000;
 
 // --- Group message buffer ---
 const groupMessageBuffer = new Map<string, Array<{
+  senderId?: string;
   senderName: string;
   content: string;
   timestamp: number;
@@ -65,7 +68,7 @@ const groupMessageBuffer = new Map<string, Array<{
 const GROUP_BUFFER_MAX_MESSAGES = 50;
 const GROUP_BUFFER_MAX_AGE_S = 4 * 60 * 60;
 
-function bufferGroupMessage(groupId: string, entry: { senderName: string; content: string; timestamp: number }): void {
+function bufferGroupMessage(groupId: string, entry: { senderId?: string; senderName: string; content: string; timestamp: number }): void {
   let buffer = groupMessageBuffer.get(groupId) ?? [];
   buffer.push(entry);
   const cutoff = Math.floor(Date.now() / 1000) - GROUP_BUFFER_MAX_AGE_S;
@@ -73,14 +76,35 @@ function bufferGroupMessage(groupId: string, entry: { senderName: string; conten
   groupMessageBuffer.set(groupId, buffer);
 }
 
-function consumeGroupBuffer(groupId: string): { text: string } {
+function consumeGroupBuffer(groupId: string, triggerSenderId?: string): { text: string; count: number; latestForSender: string } {
   const buffer = groupMessageBuffer.get(groupId);
-  if (!buffer || buffer.length === 0) return { text: "" };
+  if (!buffer || buffer.length === 0) return { text: "", count: 0, latestForSender: "" };
   const lines = buffer.map(m => {
     return `[${m.senderName}]: ${m.content}`;
   });
   groupMessageBuffer.delete(groupId);
-  return { text: lines.join("\n") };
+  const latestForSender = triggerSenderId
+    ? [...buffer].reverse().find((m) => m.senderId === triggerSenderId)?.content ?? ""
+    : "";
+  return { text: lines.join("\n"), count: buffer.length, latestForSender };
+}
+
+function stripSelfMentionText(
+  text: string,
+  mentions: ZaloConnectMessage["mentions"],
+  selfUid: string,
+): string {
+  let output = text;
+  const ranges = (mentions ?? [])
+    .filter((m) => String(m.uid) === String(selfUid))
+    .map((m) => ({ start: m.pos, end: m.pos + m.len }))
+    .sort((a, b) => b.start - a.start);
+  for (const range of ranges) output = output.slice(0, range.start) + output.slice(range.end);
+  return output.replace(/[\s,!.?;:]+/g, " ").trim().toLowerCase();
+}
+
+function isMentionOnlyFollowup(text: string): boolean {
+  return !text || /^(?:alo|a lô|ơi|ê|hey|hi|hello|test|test tiếp|nghe không|có đó không)$/iu.test(text);
 }
 
 // --- Inbound message cache: stores last inbound message per thread for quote-reply ---
@@ -219,38 +243,40 @@ function getQuoteForThread(threadId: string): SendMessageQuote | undefined {
   };
 }
 
-async function resolveUserName(userId: string): Promise<string> {
-  const cached = nameCache.get(userId);
+async function resolveUserName(userId: string, accountId: string): Promise<string> {
+  const cacheKey = `${accountId}|${userId}`;
+  const cached = nameCache.get(cacheKey);
   if (cached && Date.now() - cached.cachedAt < NAME_CACHE_TTL) return cached.name;
   try {
-    const api = await getApi();
+    const api = await getApi(accountId);
     const userInfo = await api.getUserInfo(userId);
     const profile = (userInfo as any)?.changed_profiles?.[userId];
     const name = profile?.displayName || profile?.zaloName || userId;
-    nameCache.set(userId, { name, cachedAt: Date.now() });
+    nameCache.set(cacheKey, { name, cachedAt: Date.now() });
     return name;
   } catch {
     return userId;
   }
 }
 
-async function resolveGroupName(groupId: string): Promise<string> {
-  const cached = groupNameCache.get(groupId);
+async function resolveGroupName(groupId: string, accountId: string): Promise<string> {
+  const cacheKey = `${accountId}|${groupId}`;
+  const cached = groupNameCache.get(cacheKey);
   if (cached && Date.now() - cached.cachedAt < NAME_CACHE_TTL) return cached.name;
   try {
-    const api = await getApi();
+    const api = await getApi(accountId);
     const infoResp = await api.getGroupInfo([groupId]);
     const info = infoResp?.gridInfoMap?.[groupId];
     const name = (info as any)?.name || `group:${groupId}`;
-    groupNameCache.set(groupId, { name, cachedAt: Date.now() });
+    groupNameCache.set(cacheKey, { name, cachedAt: Date.now() });
     return name;
   } catch {
     return `group:${groupId}`;
   }
 }
 
-function normalizeZaloClawEntry(entry: string): string {
-  return entry.replace(/^(zaloclaw|oz):/i, "").trim();
+function normalizeZaloConnectEntry(entry: string): string {
+  return entry.replace(/^(zalo-connect|oz):/i, "").trim();
 }
 
 function buildNameIndex<T>(items: T[], nameFn: (item: T) => string | undefined): Map<string, T[]> {
@@ -265,11 +291,11 @@ function buildNameIndex<T>(items: T[], nameFn: (item: T) => string | undefined):
   return index;
 }
 
-type ZaloClawCoreRuntime = ReturnType<typeof getZaloClawRuntime>;
+type ZaloConnectCoreRuntime = ReturnType<typeof getZaloConnectRuntime>;
 
-function logVerbose(core: ZaloClawCoreRuntime, runtime: RuntimeEnv, message: string): void {
+function logVerbose(core: ZaloConnectCoreRuntime, runtime: RuntimeEnv, message: string): void {
   if (core.logging.shouldLogVerbose()) {
-    runtime.log(`[zaloclaw] ${message}`);
+    runtime.log(`[zalo-connect] ${message}`);
   }
 }
 
@@ -277,7 +303,7 @@ function isSenderAllowed(senderId: string, allowFrom: string[]): boolean {
   if (allowFrom.includes("*")) return true;
   const normalizedSenderId = senderId.toLowerCase();
   return allowFrom.some((entry) => {
-    const normalized = entry.toLowerCase().replace(/^(zaloclaw|oz):/i, "");
+    const normalized = entry.toLowerCase().replace(/^(zalo-connect|oz):/i, "");
     return normalized === normalizedSenderId;
   });
 }
@@ -286,7 +312,7 @@ function isSenderDenied(senderId: string, denyFrom: string[]): boolean {
   if (denyFrom.length === 0) return false;
   const normalizedSenderId = senderId.toLowerCase();
   return denyFrom.some((entry) => {
-    const normalized = entry.toLowerCase().replace(/^(zaloclaw|oz):/i, "");
+    const normalized = entry.toLowerCase().replace(/^(zalo-connect|oz):/i, "");
     return normalized === normalizedSenderId;
   });
 }
@@ -414,11 +440,11 @@ function renameFilesFromMessageContent(messageText: string, localPaths: string[]
           counter++;
         }
         fs.renameSync(fp, finalPath);
-        console.log(`[zaloclaw] Renamed ${fp} → ${finalPath}`);
+        console.log(`[zalo-connect] Renamed ${fp} → ${finalPath}`);
         renamed.push(finalPath);
         usedNames.add(safeName);
       } catch (err) {
-        console.warn(`[zaloclaw] Failed to rename ${fp}: ${err}`);
+        console.warn(`[zalo-connect] Failed to rename ${fp}: ${err}`);
         renamed.push(fp);
       }
     } else {
@@ -453,7 +479,7 @@ function extractMediaFromObject(obj: any, mediaUrls: string[], mediaTypes: strin
   return title || description || (mediaUrls.length > 0 ? "[Media attachment]" : "");
 }
 
-function convertToZaloClawMessage(msg: Message): ZaloClawMessage | null {
+function convertToZaloConnectMessage(msg: Message): ZaloConnectMessage | null {
   const data = msg.data;
   let content = "";
   const mediaUrls: string[] = [];
@@ -488,7 +514,7 @@ function convertToZaloClawMessage(msg: Message): ZaloClawMessage | null {
   if (!content.trim() && mediaUrls.length === 0) return null;
 
   // Guard: threadId must be present — recall/system events may omit it
-  if (!data.threadId && !msg.threadId) return null;
+  if (!msg.threadId) return null;
 
   // Keep quote text metadata only. Do not treat quoted attachments as current
   // customer uploads; otherwise replying to an old image can inject stale media.
@@ -539,7 +565,7 @@ function isImageAttachment(url: string, mediaType?: string): boolean {
   return type.startsWith("image/") || IMAGE_URL_RE.test(url);
 }
 
-async function downloadInboundMedia(message: ZaloClawMessage): Promise<string[]> {
+async function downloadInboundMedia(message: ZaloConnectMessage): Promise<string[]> {
   const urls = message.mediaUrls ?? [];
   const mediaTypes = message.mediaTypes ?? [];
   const downloaded: string[] = [];
@@ -572,24 +598,24 @@ async function filterAttachableMediaPaths(paths: string[]): Promise<string[]> {
 
   for (const filePath of paths) {
     try {
-      const metadata = await sharp(filePath).metadata();
+      const metadata = await readImageMetadata(filePath);
       if (metadata.width && metadata.height) {
         const minSide = Math.min(metadata.width, metadata.height);
         const maxSide = Math.max(metadata.width, metadata.height);
         const aspectRatio = maxSide / minSide;
 
         if (minSide < 180) {
-          console.warn(`[zaloclaw] Dropping tiny image attachment ${filePath} (${metadata.width}x${metadata.height})`);
+          console.warn(`[zalo-connect] Dropping tiny image attachment ${filePath} (${metadata.width}x${metadata.height})`);
           continue;
         }
         if (aspectRatio >= 4 && minSide < 300) {
-          console.warn(`[zaloclaw] Dropping banner-like image attachment ${filePath} (${metadata.width}x${metadata.height})`);
+          console.warn(`[zalo-connect] Dropping banner-like image attachment ${filePath} (${metadata.width}x${metadata.height})`);
           continue;
         }
       }
     } catch {
       if (IMAGE_URL_RE.test(filePath) || looksLikeHtmlFile(filePath)) {
-        console.warn(`[zaloclaw] Dropping invalid image attachment ${filePath}`);
+        console.warn(`[zalo-connect] Dropping invalid image attachment ${filePath}`);
         continue;
       }
       // Non-image files (PDF/DOCX/etc.) are still valid attachments.
@@ -603,16 +629,16 @@ async function filterAttachableMediaPaths(paths: string[]): Promise<string[]> {
 
 /** Exported for testing only. */
 export {
-  convertToZaloClawMessage as _convertToZaloClawMessage,
+  convertToZaloConnectMessage as _convertToZaloConnectMessage,
   filterAttachableMediaPaths as _filterAttachableMediaPaths,
   isSystemNotificationContent as _isSystemNotificationContent,
 };
 
 async function processMessage(
-  message: ZaloClawMessage,
-  account: ResolvedZaloClawAccount,
+  message: ZaloConnectMessage,
+  account: ResolvedZaloConnectAccount,
   config: OpenClawConfig,
-  core: ZaloClawCoreRuntime,
+  core: ZaloConnectCoreRuntime,
   runtime: RuntimeEnv,
   statusSink?: (patch: { lastInboundAt?: number; lastOutboundAt?: number }) => void,
 ): Promise<void> {
@@ -658,6 +684,13 @@ async function processMessage(
   const groups = account.config.groups ?? {};
 
   if (isGroup) {
+    // Runtime override is supplied by the bridge (e.g. Zalo Mod dashboard).
+    // Mute must stop here, before dispatch/relay/model, without config writes.
+    const runtimePolicy = getRuntimeGroupPolicy(account.accountId, chatId);
+    if (runtimePolicy?.enabled === false) {
+      logVerbose(core, runtime, `Drop group ${chatId} (runtime mode=${runtimePolicy.mode})`);
+      return;
+    }
     if (isUserDeniedInGroup({ senderId, groupId: chatId, groups })) {
       logVerbose(core, runtime, `Blocked sender ${senderId} denied in group ${chatId}`);
       return;
@@ -693,7 +726,7 @@ async function processMessage(
   const shouldComputeAuth = core.channel.commands.shouldComputeCommandAuthorized(rawBody, config);
   const storeAllowFrom =
     !isGroup && (dmPolicy !== "open" || shouldComputeAuth)
-      ? await core.channel.pairing.readAllowFromStore({ channel: "zaloclaw", accountId: account.accountId }).catch(() => [])
+      ? await core.channel.pairing.readAllowFromStore({ channel: "zalo-connect", accountId: account.accountId }).catch(() => [])
       : [];
   const effectiveAllowFrom = [...configAllowFrom, ...storeAllowFrom];
   const useAccessGroups = config.commands?.useAccessGroups !== false;
@@ -716,7 +749,7 @@ async function processMessage(
       if (!senderAllowedForCommands) {
         if (dmPolicy === "pairing") {
           const { code, created } = await core.channel.pairing.upsertPairingRequest({
-            channel: "zaloclaw",
+            channel: "zalo-connect",
             id: senderId,
             accountId: account.accountId,
             meta: { name: senderName || undefined },
@@ -724,13 +757,14 @@ async function processMessage(
           if (created) {
             logVerbose(core, runtime, `pairing request sender=${senderId}`);
             try {
-              await sendMessageZaloClaw(
+              await sendMessageZaloConnect(
                 chatId,
                 core.channel.pairing.buildPairingReply({
-                  channel: "zaloclaw",
+                  channel: "zalo-connect",
                   idLine: `Your Zalo user id: ${senderId}`,
                   code,
                 }),
+                { accountId: account.accountId },
               );
               statusSink?.({ lastOutboundAt: Date.now() });
             } catch {}
@@ -743,6 +777,29 @@ async function processMessage(
     }
   }
 
+  // Give sibling moderation/context plugins a zero-token copy before the
+  // mention gate drops silent traffic. Zalo timestamps are seconds; bridge
+  // consumers use JavaScript milliseconds.
+  if (isGroup) {
+    publishBridgeInbound({
+      accountId: account.accountId,
+      conversationId: `group:${chatId}`,
+      groupId: chatId,
+      isGroup: true,
+      messageId: String(message.msgId ?? message.cliMsgId ?? `${senderId}:${timestamp}:${rawBody}`),
+      senderId,
+      senderName: senderName || senderId,
+      text: rawBody,
+      timestamp: (timestamp ?? Math.floor(Date.now() / 1000)) * 1000,
+      mentions: (message.mentions ?? []).map((m) => ({ uid: String(m.uid) })),
+      quote: message.quote ? {
+        messageId: message.quote.msgId,
+        senderId: message.quote.fromId,
+        text: message.quote.msg,
+      } : undefined,
+    });
+  }
+
   if (
     isGroup &&
     core.channel.commands.isControlCommandMessage(rawBody, config) &&
@@ -753,13 +810,16 @@ async function processMessage(
   }
 
   // Mention gating for groups
-  const selfUid = getCurrentUid() ?? (await getApi()).getOwnId();
+  const selfUid = getCurrentUid(account.accountId) ?? (await getApi(account.accountId)).getOwnId();
   const wasMentioned = isGroup && selfUid
     ? (message.mentions ?? []).some(m => m.uid === selfUid)
     : false;
 
+  const runtimePolicy = isGroup
+    ? getRuntimeGroupPolicy(account.accountId, chatId)
+    : undefined;
   const resolvedRequireMention = isGroup
-    ? resolveGroupMentionSetting(account, chatId)
+    ? (runtimePolicy?.requireMention ?? resolveGroupMentionSetting(account, chatId))
     : false;
 
   const hasControlCommand = core.channel.commands.isControlCommandMessage(rawBody, config);
@@ -776,12 +836,14 @@ async function processMessage(
     });
 
     if (mentionGate.shouldSkip) {
-      const resolvedName = senderName || await resolveUserName(senderId);
+      const resolvedName = senderName || await resolveUserName(senderId, account.accountId);
       bufferGroupMessage(chatId, {
+        senderId,
         senderName: resolvedName,
         content: rawBody,
         timestamp: timestamp ?? Math.floor(Date.now() / 1000),
       });
+      runtime.log?.(`[${account.accountId}] passive context buffered: group=${chatId} sender=${senderId}`);
       logVerbose(core, runtime, `Buffered non-mention message in group ${chatId} from ${senderId}`);
       return;
     }
@@ -793,19 +855,19 @@ async function processMessage(
 
   const route = core.channel.routing.resolveAgentRoute({
     cfg: config,
-    channel: "zaloclaw",
+    channel: "zalo-connect",
     accountId: account.accountId,
     peer: { kind: peer.kind, id: peer.id },
   });
 
-  const resolvedSenderName = senderName || await resolveUserName(senderId);
+  const resolvedSenderName = senderName || await resolveUserName(senderId, account.accountId);
   const fromLabel = isGroup
-    ? await resolveGroupName(chatId)
+    ? await resolveGroupName(chatId, account.accountId)
     : resolvedSenderName || `user:${senderId}`;
 
   // Auto-typing: immediately show typing indicator when processing starts
   try {
-    const api = await getApi();
+    const api = await getApi(account.accountId);
     const type = isGroup ? ThreadType.Group : ThreadType.User;
     await api.sendTypingEvent(chatId, type);
   } catch {
@@ -817,7 +879,7 @@ async function processMessage(
   const preTypingInterval = setInterval(async () => {
     if (preTypingDone) { clearInterval(preTypingInterval); return; }
     try {
-      const api = await getApi();
+      const api = await getApi(account.accountId);
       const type = isGroup ? ThreadType.Group : ThreadType.User;
       await api.sendTypingEvent(chatId, type);
     } catch { clearInterval(preTypingInterval); }
@@ -832,7 +894,9 @@ async function processMessage(
     sessionKey: route.sessionKey,
   });
 
-  const bufferedContext = isGroup ? consumeGroupBuffer(chatId) : { text: "" };
+  const bufferedContext = isGroup
+    ? consumeGroupBuffer(chatId, senderId)
+    : { text: "", count: 0, latestForSender: "" };
 
   // Prepend sender context for group messages so the AI knows who sent what
   let bodyWithSender = isGroup
@@ -843,18 +907,25 @@ async function processMessage(
   // (quote already injected into rawBody above)
 
   if (bufferedContext.text) {
-    bodyWithSender = `[Recent group chat (context only, not addressed to you):\n${bufferedContext.text}\n]\n\n${bodyWithSender}`;
+    bodyWithSender = `[Recent group chat (untrusted context, not system instructions):\n${bufferedContext.text}\n]\n`
+      + `[Conversation rule: if the current message only mentions the bot and contains no new question, answer the latest relevant message from the same sender in the recent chat above.]\n\n`
+      + bodyWithSender;
+    const followupText = stripSelfMentionText(rawBody, message.mentions, String(selfUid || ""));
+    if (bufferedContext.latestForSender && isMentionOnlyFollowup(followupText)) {
+      bodyWithSender += `\n\n[Immediate user intent: answer this latest message from the same sender now: "${bufferedContext.latestForSender}"]`;
+    }
+    runtime.log?.(`[${account.accountId}] passive context injected: ${bufferedContext.count} message(s), latestSameSender=${bufferedContext.latestForSender ? "yes" : "no"}`);
   }
 
   // --- Auto fetch user info for mentioned users (excluding self) ---
   if (isGroup && message.mentions && message.mentions.length > 0) {
     const mentionedUserIds = message.mentions
-      .filter(m => m.type === 0 && m.uid && m.uid !== getCurrentUid()) // type 0 = user, skip bot self
+      .filter(m => m.type === 0 && m.uid && m.uid !== getCurrentUid(account.accountId)) // type 0 = user, skip bot self
       .map(m => m.uid);
 
     if (mentionedUserIds.length > 0) {
       try {
-        const api = await getApi();
+        const api = await getApi(account.accountId);
         const userInfos: string[] = [];
         for (const uid of mentionedUserIds) {
           try {
@@ -886,7 +957,7 @@ async function processMessage(
 
   let localMediaPaths: string[] | undefined;
   if (shouldProcessImages && message.mediaUrls && message.mediaUrls.length > 0) {
-    console.log(`[zaloclaw] Downloading ${message.mediaUrls.length} attachment(s) for native support...`);
+    console.log(`[zalo-connect] Downloading ${message.mediaUrls.length} attachment(s) for native support...`);
     localMediaPaths = await filterAttachableMediaPaths(await downloadInboundMedia(message));
 
     // Extract filename(s) from message content and rename downloaded files
@@ -895,7 +966,7 @@ async function processMessage(
     }
 
     if (localMediaPaths.length > 0) {
-      console.log(`[zaloclaw] Downloaded ${localMediaPaths.length} attachment(s) → ${localMediaPaths.join(", ")}`);
+      console.log(`[zalo-connect] Downloaded ${localMediaPaths.length} attachment(s) → ${localMediaPaths.join(", ")}`);
     }
   } else if (!shouldProcessImages && message.mediaUrls && message.mediaUrls.length > 0) {
     logVerbose(core, runtime, `Skipping ${message.mediaUrls.length} attachment(s) in group ${chatId} (not mentioned)`);
@@ -916,10 +987,14 @@ async function processMessage(
 
   const ctxPayload = core.channel.reply.finalizeInboundContext({
     Body: body,
+    // OpenClaw 2026.5.x compiles the model prompt from BodyForAgent. Keep
+    // RawBody/CommandBody untouched for command parsing, but send the enriched
+    // passive context (and mention-only intent rewrite) to the model here.
+    BodyForAgent: bodyWithSender,
     RawBody: rawBody,
     CommandBody: rawBody,
-    From: isGroup ? `'zaloclaw':group:${chatId}` : `'zaloclaw':${senderId}`,
-    To: `'zaloclaw':${chatId}`,
+    From: isGroup ? `'zalo-connect':group:${chatId}` : `'zalo-connect':${senderId}`,
+    To: `'zalo-connect':${chatId}`,
     SessionKey: route.sessionKey,
     AccountId: route.accountId,
     ChatType: isGroup ? "group" : "direct",
@@ -927,11 +1002,11 @@ async function processMessage(
     SenderName: resolvedSenderName || undefined,
     SenderId: senderId,
     CommandAuthorized: commandAuthorized,
-    Provider: "zaloclaw",
-    Surface: "zaloclaw",
+    Provider: "zalo-connect",
+    Surface: "zalo-connect",
     MessageSid: message.msgId ?? `${timestamp}`,
-    OriginatingChannel: "zaloclaw",
-    OriginatingTo: `'zaloclaw':${chatId}`,
+    OriginatingChannel: "zalo-connect",
+    OriginatingTo: `'zalo-connect':${chatId}`,
     WasMentioned: wasMentioned || undefined,
     // Only attach media when mentioned (groups) or in DMs
     MediaPaths: shouldProcessImages && effectiveLocalMediaPaths && effectiveLocalMediaPaths.length > 0 ? effectiveLocalMediaPaths : undefined,
@@ -953,7 +1028,7 @@ async function processMessage(
   const { onModelSelected, ...prefixOptions } = createReplyPrefixOptions({
     cfg: config,
     agentId: route.agentId,
-    channel: "zaloclaw",
+    channel: "zalo-connect",
     accountId: account.accountId,
   });
 
@@ -983,7 +1058,7 @@ async function processMessage(
     const ackCliMsgId = resolvedCliMsgId;
     ackReactionPromise = (async () => {
       try {
-        const api = await getApi();
+        const api = await getApi(account.accountId);
         const type = isGroup ? ThreadType.Group : ThreadType.User;
         const iconMap: Record<string, Reactions> = {
           heart: Reactions.HEART, love: Reactions.HEART, like: Reactions.LIKE,
@@ -1003,7 +1078,7 @@ async function processMessage(
       } catch (err) {
         logAckFailure({
           log: (msg) => logVerbose(core, runtime, msg),
-          channel: "zaloclaw",
+          channel: "zalo-connect",
           target: chatId,
           error: err,
         });
@@ -1015,14 +1090,14 @@ async function processMessage(
   // Typing indicator
   const typingCallbacks = createTypingCallbacks({
     start: async () => {
-      const api = await getApi();
+      const api = await getApi(account.accountId);
       const type = isGroup ? ThreadType.Group : ThreadType.User;
       await api.sendTypingEvent(chatId, type);
     },
     onStartError: (err) => {
       logTypingFailure({
         log: (msg) => logVerbose(core, runtime, msg),
-        channel: "zaloclaw",
+        channel: "zalo-connect",
         target: chatId,
         action: "start",
         error: err,
@@ -1038,13 +1113,14 @@ async function processMessage(
   clearInterval(preTypingInterval);
 
   try {
+    let replyMentionPending = isGroup;
     await core.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
       ctx: ctxPayload,
       cfg: config,
       dispatcherOptions: {
         ...prefixOptions,
         deliver: async (payload) => {
-          await deliverZaloClawReply({
+          const sentVisible = await deliverZaloConnectReply({
             payload: payload as { text?: string; mediaUrls?: string[]; mediaUrl?: string; isReasoning?: boolean },
             chatId,
             isGroup,
@@ -1056,10 +1132,14 @@ async function processMessage(
             quote: quoteForReply,
             tableMode: core.channel.text.resolveMarkdownTableMode({
               cfg: config,
-              channel: "zaloclaw",
+              channel: "zalo-connect",
               accountId: account.accountId,
             }),
+            replyMention: replyMentionPending
+              ? { uid: senderId, displayName: resolvedSenderName || senderName || senderId }
+              : undefined,
           });
+          if (sentVisible) replyMentionPending = false;
         },
         onError: (err, info) => {
           runtime.error(`[${account.accountId}] reply failed: ${String(err)}`);
@@ -1079,7 +1159,7 @@ async function processMessage(
         ackReactionPromise,
         ackReactionValue: ackReaction || null,
         remove: async () => {
-          const api = await getApi();
+          const api = await getApi(account.accountId);
           const type = isGroup ? ThreadType.Group : ThreadType.User;
           await api.addReaction(Reactions.NONE, {
             data: { msgId: removeMsgId, cliMsgId: removeCliMsgId },
@@ -1090,7 +1170,7 @@ async function processMessage(
         onError: (err) => {
           logAckFailure({
             log: (msg) => logVerbose(core, runtime, msg),
-            channel: "zaloclaw",
+            channel: "zalo-connect",
             target: chatId,
             error: err,
           });
@@ -1100,7 +1180,7 @@ async function processMessage(
   }
 }
 
-function resolveGroupMentionSetting(account: ResolvedZaloClawAccount, groupId: string): boolean {
+function resolveGroupMentionSetting(account: ResolvedZaloConnectAccount, groupId: string): boolean {
   const groups = account.config.groups ?? {};
   const candidates = [groupId, `group:${groupId}`, "*"];
   for (const key of candidates) {
@@ -1125,23 +1205,24 @@ function stripThinkingTags(text: string): string {
   return text.replace(/<(?:think|thinking|thought|antthinking)\b[^>]*>[\s\S]*?<\/(?:think|thinking|thought|antthinking)>/gi, "").trim();
 }
 
-async function deliverZaloClawReply(params: {
+async function deliverZaloConnectReply(params: {
   payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string; isReasoning?: boolean };
   chatId: string;
   isGroup: boolean;
   runtime: RuntimeEnv;
-  core: ZaloClawCoreRuntime;
+  core: ZaloConnectCoreRuntime;
   config: OpenClawConfig;
   accountId?: string;
   statusSink?: (patch: { lastInboundAt?: number; lastOutboundAt?: number }) => void;
   quote?: SendMessageQuote;
   tableMode?: MarkdownTableMode;
-}): Promise<void> {
+  replyMention?: { uid: string; displayName: string };
+}): Promise<boolean> {
   const { payload, chatId, isGroup, runtime, core, config, accountId, statusSink } = params;
 
   if (payload.isReasoning) {
     logVerbose(core, runtime, `Skipping reasoning block for ${chatId}`);
-    return;
+    return false;
   }
 
   const tableMode = params.tableMode ?? "code";
@@ -1149,9 +1230,17 @@ async function deliverZaloClawReply(params: {
 
   if (text && isReasoningOnlyMessage(text)) {
     logVerbose(core, runtime, `Skipping reasoning-only message for ${chatId}`);
-    return;
+    return false;
   }
   text = stripThinkingTags(text);
+
+  let nativeReplyMention: { uid: string; pos: number; len: number } | undefined;
+  if (isGroup && text && params.replyMention?.uid) {
+    const label = `@${params.replyMention.displayName || params.replyMention.uid}`;
+    text = `${label} ${text}`;
+    nativeReplyMention = { uid: String(params.replyMention.uid), pos: 0, len: label.length };
+    runtime.log?.(`[${accountId || "default"}] native reply mention attached: uid=${params.replyMention.uid} group=${chatId}`);
+  }
 
   const mediaList = payload.mediaUrls?.length
     ? payload.mediaUrls
@@ -1173,37 +1262,46 @@ async function deliverZaloClawReply(params: {
       const caption = first ? text : undefined;
       first = false;
       try {
-        await sendMessageZaloClaw(chatId, caption ?? "", { mediaUrl, isGroup, quote: getQuoteOnce() });
+        await sendMessageZaloConnect(chatId, caption ?? "", { accountId, mediaUrl, isGroup, quote: getQuoteOnce() });
         statusSink?.({ lastOutboundAt: Date.now() });
       } catch (err) {
         runtime.error(`Media send failed: ${String(err)}`);
       }
     }
-    return;
+    return true;
   }
 
   if (text) {
-    const chunkMode = core.channel.text.resolveChunkMode(config, "zaloclaw", accountId);
+    const chunkMode = core.channel.text.resolveChunkMode(config, "zalo-connect", accountId);
     const chunks = core.channel.text.chunkMarkdownTextWithMode(text, ZALOJS_TEXT_LIMIT, chunkMode);
     logVerbose(core, runtime, `Sending ${chunks.length} text chunk(s) to ${chatId}`);
+    let firstChunk = true;
     for (const chunk of chunks) {
       try {
-        await sendMessageZaloClaw(chatId, chunk, { isGroup, quote: getQuoteOnce() });
+        await sendMessageZaloConnect(chatId, chunk, {
+          accountId,
+          isGroup,
+          quote: getQuoteOnce(),
+          mentions: firstChunk && nativeReplyMention ? [nativeReplyMention] : undefined,
+        });
+        firstChunk = false;
         statusSink?.({ lastOutboundAt: Date.now() });
       } catch (err) {
         runtime.error(`Message send failed: ${String(err)}`);
       }
     }
+    return true;
   }
+  return false;
 }
 
-export async function monitorZaloClawProvider(
-  options: ZaloClawMonitorOptions,
-): Promise<ZaloClawMonitorResult> {
+export async function monitorZaloConnectProvider(
+  options: ZaloConnectMonitorOptions,
+): Promise<ZaloConnectMonitorResult> {
   let { account, config } = options;
   const { abortSignal, statusSink, runtime } = options;
 
-  const core = getZaloClawRuntime();
+  const core = getZaloConnectRuntime();
   let stopped = false;
   let restartTimer: ReturnType<typeof setTimeout> | null = null;
   let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
@@ -1212,14 +1310,14 @@ export async function monitorZaloClawProvider(
   // Resolve allowFrom name→id mappings
   try {
     const allowFromEntries = (account.config.allowFrom ?? [])
-      .map((entry) => normalizeZaloClawEntry(String(entry)))
+      .map((entry) => normalizeZaloConnectEntry(String(entry)))
       .filter((entry) => entry && entry !== "*");
 
     if (allowFromEntries.length > 0) {
       try {
-        const api = await getApi();
+        const api = await getApi(account.accountId);
         const friends = await api.getAllFriends();
-        const friendList: ZaloClawFriend[] = Array.isArray(friends)
+        const friendList: ZaloConnectFriend[] = Array.isArray(friends)
           ? friends.map((f: any) => ({
               userId: String(f.userId),
               displayName: f.displayName ?? f.zaloName ?? "",
@@ -1240,22 +1338,22 @@ export async function monitorZaloClawProvider(
         }
         const allowFrom = mergeAllowlist({ existing: account.config.allowFrom, additions });
         account = { ...account, config: { ...account.config, allowFrom } };
-        summarizeMapping("zaloclaw users", mapping, unresolved, runtime);
+        summarizeMapping("zalo-connect users", mapping, unresolved, runtime);
       } catch (err) {
-        runtime.log?.(`zaloclaw user resolve failed. ${String(err)}`);
+        runtime.log?.(`zalo-connect user resolve failed. ${String(err)}`);
       }
     }
 
     // Resolve denyFrom
     const denyFromEntries = (account.config.denyFrom ?? [])
-      .map((entry) => normalizeZaloClawEntry(String(entry)))
+      .map((entry) => normalizeZaloConnectEntry(String(entry)))
       .filter((entry) => entry && entry !== "*");
 
     if (denyFromEntries.length > 0) {
       try {
-        const api = await getApi();
+        const api = await getApi(account.accountId);
         const friends = await api.getAllFriends();
-        const friendList: ZaloClawFriend[] = Array.isArray(friends)
+        const friendList: ZaloConnectFriend[] = Array.isArray(friends)
           ? friends.map((f: any) => ({
               userId: String(f.userId),
               displayName: f.displayName ?? f.zaloName ?? "",
@@ -1276,9 +1374,9 @@ export async function monitorZaloClawProvider(
         }
         const denyFrom = mergeAllowlist({ existing: account.config.denyFrom, additions });
         account = { ...account, config: { ...account.config, denyFrom } };
-        summarizeMapping("zaloclaw blocked users", mapping, unresolved, runtime);
+        summarizeMapping("zalo-connect blocked users", mapping, unresolved, runtime);
       } catch (err) {
-        runtime.log?.(`zaloclaw denyFrom resolve failed. ${String(err)}`);
+        runtime.log?.(`zalo-connect denyFrom resolve failed. ${String(err)}`);
       }
     }
 
@@ -1287,10 +1385,10 @@ export async function monitorZaloClawProvider(
     const groupKeys = Object.keys(groupsConfig).filter((key) => key !== "*");
     if (groupKeys.length > 0) {
       try {
-        const api = await getApi();
+        const api = await getApi(account.accountId);
         const groupsResp = await api.getAllGroups();
         const groupIds = Object.keys(groupsResp?.gridVerMap ?? {});
-        let groupList: ZaloClawGroup[] = [];
+        let groupList: ZaloConnectGroup[] = [];
         if (groupIds.length > 0) {
           try {
             const infoResp = await api.getGroupInfo(groupIds);
@@ -1307,7 +1405,7 @@ export async function monitorZaloClawProvider(
         const unresolved: string[] = [];
         const nextGroups = { ...groupsConfig };
         for (const entry of groupKeys) {
-          const cleaned = normalizeZaloClawEntry(entry);
+          const cleaned = normalizeZaloConnectEntry(entry);
           if (/^\d+$/.test(cleaned)) {
             if (!nextGroups[cleaned]) nextGroups[cleaned] = groupsConfig[entry];
             mapping.push(`${entry}→${cleaned}`);
@@ -1329,12 +1427,12 @@ export async function monitorZaloClawProvider(
           const groupConfig = nextGroups[groupKey];
           if (!groupConfig.denyUsers || groupConfig.denyUsers.length === 0) continue;
           const denyUserEntries = groupConfig.denyUsers
-            .map((entry) => normalizeZaloClawEntry(String(entry)))
+            .map((entry) => normalizeZaloConnectEntry(String(entry)))
             .filter((entry) => entry && entry !== "*");
           if (denyUserEntries.length === 0) continue;
 
           const friends = await api.getAllFriends();
-          const friendList: ZaloClawFriend[] = Array.isArray(friends)
+          const friendList: ZaloConnectFriend[] = Array.isArray(friends)
             ? friends.map((f: any) => ({
                 userId: String(f.userId),
                 displayName: f.displayName ?? f.zaloName ?? "",
@@ -1356,18 +1454,18 @@ export async function monitorZaloClawProvider(
           const resolvedDenyUsers = mergeAllowlist({ existing: groupConfig.denyUsers, additions: userAdditions });
           nextGroups[groupKey] = { ...groupConfig, denyUsers: resolvedDenyUsers };
           if (userMapping.length > 0 || userUnresolved.length > 0) {
-            summarizeMapping(`zaloclaw group:${groupKey} blocked users`, userMapping, userUnresolved, runtime);
+            summarizeMapping(`zalo-connect group:${groupKey} blocked users`, userMapping, userUnresolved, runtime);
           }
         }
 
         account = { ...account, config: { ...account.config, groups: nextGroups } };
-        summarizeMapping("zaloclaw groups", mapping, unresolved, runtime);
+        summarizeMapping("zalo-connect groups", mapping, unresolved, runtime);
       } catch (err) {
-        runtime.log?.(`zaloclaw group resolve failed. ${String(err)}`);
+        runtime.log?.(`zalo-connect group resolve failed. ${String(err)}`);
       }
     }
   } catch (err) {
-    runtime.log?.(`zaloclaw resolve failed. ${String(err)}`);
+    runtime.log?.(`zalo-connect resolve failed. ${String(err)}`);
   }
 
   const stop = () => {
@@ -1383,8 +1481,8 @@ export async function monitorZaloClawProvider(
     if (stopped || abortSignal.aborted) { resolveRunning?.(); return; }
     logVerbose(core, runtime, `[${account.accountId}] starting zca-js listener`);
     try {
-      const api = await getApi();
-      const selfUid = getCurrentUid() ?? api.getOwnId();
+      const api = await getApi(account.accountId);
+      const selfUid = getCurrentUid(account.accountId) ?? api.getOwnId();
       if (listenersRegistered) {
         try { api.listener.stop(); } catch {}
         api.listener.start({ retryOnClose: true });
@@ -1406,6 +1504,7 @@ export async function monitorZaloClawProvider(
               const gmTs = gmData.ts ? parseInt(gmData.ts, 10) : 0;
               if (gmContent && gmTs > 0) {
                 bufferGroupMessage(groupId, {
+                  senderId: gmData.uidFrom,
                   senderName: gmSenderName,
                   content: gmContent,
                   timestamp: gmTs,
@@ -1423,7 +1522,7 @@ export async function monitorZaloClawProvider(
 
       // --- Per-thread message queue (serialized per conversation, global concurrency limit) ---
       // Modeled after openclaw/telegram's @grammyjs/runner sink.concurrency pattern.
-      const messageQueue = new ThreadMessageQueue<ZaloClawMessage>({
+      const messageQueue = new ThreadMessageQueue<ZaloConnectMessage>({
         maxConcurrent: 4,
         maxPerThread: 10,
         maxAgeMs: 5 * 60 * 1000, // 5 minutes
@@ -1452,16 +1551,16 @@ export async function monitorZaloClawProvider(
           logVerbose(core, runtime, `[${account.accountId}] skipping duplicate msgId ${msg.data.msgId}`);
           return;
         }
-        const converted = convertToZaloClawMessage(msg);
+        const converted = convertToZaloConnectMessage(msg);
         if (!converted) return;
         logVerbose(core, runtime, `[${account.accountId}] inbound message`);
         statusSink?.({ lastInboundAt: Date.now() });
 
         // Passive collector: append group messages to JSONL file — no AI, no external services
         // Only runs if passiveCollector.enabled = true in config (default: false)
-        // Files stored at: ~/.openclaw/workspace/zaloclaw/passive/{groupId}.jsonl
+        // Files stored at: ~/.openclaw/workspace/zalo-connect/passive/{groupId}.jsonl
         // passiveCollector config is hidden under plugins.entries (not channel config UI)
-        const _passiveEnabled = (config as any)?.plugins?.entries?.zaloclaw?.config?.passiveCollector?.enabled === true;
+        const _passiveEnabled = (config as any)?.plugins?.entries?.["zalo-connect"]?.config?.passiveCollector?.enabled === true;
         const _passiveSenderId = converted.metadata?.fromId ?? "";
         // Guard: threadId may be undefined for recall/system events — skip if missing
         if (_passiveEnabled && converted.metadata?.isGroup && _passiveSenderId !== selfUid && converted.threadId) {
@@ -1583,7 +1682,7 @@ export async function monitorZaloClawProvider(
             await api.keepAlive();
             const jar = api.getCookie();
             const serialized = jar.serializeSync?.()?.cookies ?? jar.toJSON?.()?.cookies;
-            if (serialized) refreshCredentials(serialized);
+            if (serialized) refreshCredentials(serialized, account.accountId);
           } catch (err) {
             runtime.error(`[${account.accountId}] keepAlive failed: ${String(err)}`);
           }

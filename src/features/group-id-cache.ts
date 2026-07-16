@@ -1,7 +1,7 @@
 /**
  * In-memory cache of known Zalo group IDs.
  *
- * When zaloclaw receives a group message, the group ID is recorded here.
+ * When zalo-connect receives a group message, the group ID is recorded here.
  * outbound.sendText/sendMedia use this to determine isGroup without an API call.
  *
  * Thread-safe: Set operations are synchronous in Node.js single-threaded runtime.

@@ -2,8 +2,12 @@
  * Tests for isLocalFilePath and send module.
  * [M1]
  */
-import { describe, it, expect } from "vitest";
-import { isLocalFilePath } from "../src/channel/send.js";
+import { describe, it, expect, vi } from "vitest";
+
+vi.mock("../src/client/zalo-client.js", () => ({ getApi: vi.fn() }));
+
+import { getApi } from "../src/client/zalo-client.js";
+import { isLocalFilePath, sendMessageZaloConnect } from "../src/channel/send.js";
 
 describe("isLocalFilePath", () => {
   // Should return true for local paths
@@ -37,5 +41,25 @@ describe("isLocalFilePath", () => {
   it("returns false for plain text", () => {
     expect(isLocalFilePath("hello world")).toBe(false);
     expect(isLocalFilePath("some random text")).toBe(false);
+  });
+});
+
+describe("sendMessageZaloConnect exact native mentions", () => {
+  it("uses the supplied UID mention without member-name lookup", async () => {
+    const sendMessage = vi.fn().mockResolvedValue({ message: { msgId: "out-1" } });
+    vi.mocked(getApi).mockResolvedValue({ sendMessage } as any);
+
+    const mentions = [{ uid: "uid-kent", pos: 0, len: 5 }];
+    const result = await sendMessageZaloConnect("group-1", "@Kent chào bạn", {
+      isGroup: true,
+      mentions,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "@Kent chào bạn", mentions }),
+      "group-1",
+      expect.anything(),
+    );
   });
 });

@@ -60,26 +60,29 @@ function countStripsBefore(sorted: number[], value: number): number {
   return lo;
 }
 
-export type ZaloClawSendOptions = {
+export type ZaloConnectSendOptions = {
+  accountId?: string;
   mediaUrl?: string;
   caption?: string;
   isGroup?: boolean;
   localPath?: string;
   cleanupAfterUpload?: boolean;
   quote?: SendMessageQuote;
+  /** Native mentions with exact UID; bypasses name resolution when supplied. */
+  mentions?: Mention[];
 };
 
-export type ZaloClawSendResult = {
+export type ZaloConnectSendResult = {
   ok: boolean;
   messageId?: string;
   error?: string;
 };
 
-export async function sendMessageZaloClaw(
+export async function sendMessageZaloConnect(
   threadId: string,
   text: string,
-  options: ZaloClawSendOptions = {},
-): Promise<ZaloClawSendResult> {
+  options: ZaloConnectSendOptions = {},
+): Promise<ZaloConnectSendResult> {
   if (!threadId?.trim()) return { ok: false, error: "No threadId provided" };
 
   if (options.localPath) {
@@ -97,14 +100,14 @@ export async function sendMessageZaloClaw(
   }
 
   if (options.mediaUrl) {
-    return sendMediaZaloClaw(threadId, options.mediaUrl, {
+    return sendMediaZaloConnect(threadId, options.mediaUrl, {
       ...options,
       caption: text || options.caption,
     });
   }
 
   try {
-    const api = await getApi();
+    const api = await getApi(options.accountId);
     const type = options.isGroup ? ThreadType.Group : ThreadType.User;
     const redacted = redactOutput(text);
     const truncated = redacted.length > ZALO_MAX_TEXT_LENGTH
@@ -115,8 +118,10 @@ export async function sendMessageZaloClaw(
     let outboundText = postMarkdownText;
     let mentions: Mention[] = [];
     let alignedStyles = styles;
-    if (options.isGroup) {
-      const resolved = await resolveOutboundMentions(threadId.trim(), postMarkdownText);
+    if (options.isGroup && options.mentions?.length) {
+      mentions = options.mentions;
+    } else if (options.isGroup) {
+      const resolved = await resolveOutboundMentions(threadId.trim(), postMarkdownText, options.accountId);
       outboundText = resolved.text;
       mentions = resolved.mentions;
       if (resolved.stripIndices.length > 0 && styles.length > 0) {
@@ -140,15 +145,15 @@ export async function sendMessageZaloClaw(
   }
 }
 
-async function sendMediaZaloClaw(
+async function sendMediaZaloConnect(
   threadId: string,
   mediaUrl: string,
-  options: ZaloClawSendOptions = {},
-): Promise<ZaloClawSendResult> {
+  options: ZaloConnectSendOptions = {},
+): Promise<ZaloConnectSendResult> {
   if (!threadId?.trim()) return { ok: false, error: "No threadId provided" };
   if (!mediaUrl?.trim()) return { ok: false, error: "No media URL provided" };
   try {
-    const api = await getApi();
+    const api = await getApi(options.accountId);
     const type = options.isGroup ? ThreadType.Group : ThreadType.User;
     const result = await api.sendLink(
       { link: mediaUrl.trim(), msg: options.caption || undefined },
@@ -162,15 +167,15 @@ async function sendMediaZaloClaw(
   }
 }
 
-export async function sendLinkZaloClaw(
+export async function sendLinkZaloConnect(
   threadId: string,
   url: string,
-  options: ZaloClawSendOptions = {},
-): Promise<ZaloClawSendResult> {
+  options: ZaloConnectSendOptions = {},
+): Promise<ZaloConnectSendResult> {
   if (!threadId?.trim()) return { ok: false, error: "No threadId provided" };
   if (!url?.trim()) return { ok: false, error: "No URL provided" };
   try {
-    const api = await getApi();
+    const api = await getApi(options.accountId);
     const type = options.isGroup ? ThreadType.Group : ThreadType.User;
     const result = await api.sendLink({ link: url.trim() }, threadId.trim(), type);
     const msgId = result?.msgId;
@@ -183,13 +188,13 @@ export async function sendLinkZaloClaw(
 async function uploadAndSendLocalImage(
   threadId: string,
   localPath: string,
-  options: ZaloClawSendOptions = {},
-): Promise<ZaloClawSendResult> {
+  options: ZaloConnectSendOptions = {},
+): Promise<ZaloConnectSendResult> {
   if (!threadId?.trim()) return { ok: false, error: "No threadId provided" };
   if (!localPath?.trim()) return { ok: false, error: "No local path provided" };
   if (!fs.existsSync(localPath)) return { ok: false, error: `File not found: ${localPath}` };
   try {
-    const api = await getApi();
+    const api = await getApi(options.accountId);
     const type = options.isGroup ? ThreadType.Group : ThreadType.User;
     const result = await api.sendMessage(
       { msg: options.caption || "", attachments: localPath },

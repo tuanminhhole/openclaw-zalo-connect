@@ -78,11 +78,12 @@ async function fetchUserInfoProfiles(api: any, memberIds: string[]): Promise<Rec
   }
 }
 
-async function loadGroupMemberIndex(groupId: string): Promise<GroupMemberIndex> {
-  const cached = groupMemberCache.get(groupId);
+async function loadGroupMemberIndex(groupId: string, accountId = "default"): Promise<GroupMemberIndex> {
+  const cacheKey = `${accountId}|${groupId}`;
+  const cached = groupMemberCache.get(cacheKey);
   if (cached && Date.now() - cached.cachedAt < MEMBER_CACHE_TTL_MS) return cached.index;
 
-  const api = await getApi();
+  const api = await getApi(accountId);
   const groupResp = await api.getGroupInfo([groupId]);
   const info: any = groupResp?.gridInfoMap?.[groupId];
   if (!info) return buildIndex([]);
@@ -134,7 +135,7 @@ async function loadGroupMemberIndex(groupId: string): Promise<GroupMemberIndex> 
     const firstKey = groupMemberCache.keys().next().value;
     if (firstKey) groupMemberCache.delete(firstKey);
   }
-  groupMemberCache.set(groupId, { index, cachedAt: Date.now() });
+  groupMemberCache.set(cacheKey, { index, cachedAt: Date.now() });
   return index;
 }
 
@@ -142,7 +143,7 @@ export function primeGroupMemberCacheForTesting(
   groupId: string,
   members: Array<{ uid: string; name: string }>,
 ): void {
-  groupMemberCache.set(groupId, { index: buildIndex(members), cachedAt: Date.now() });
+  groupMemberCache.set(`default|${groupId}`, { index: buildIndex(members), cachedAt: Date.now() });
 }
 
 export function clearGroupMemberCache(): void {
@@ -239,11 +240,12 @@ export function parseOutboundMentions(
 export async function resolveOutboundMentions(
   groupId: string,
   text: string,
+  accountId = "default",
 ): Promise<ParseOutboundMentionsResult> {
   if (!text || !groupId) return { text, mentions: [], stripIndices: [] };
   if (!text.includes("@")) return { text, mentions: [], stripIndices: [] };
   try {
-    const index = await loadGroupMemberIndex(groupId);
+    const index = await loadGroupMemberIndex(groupId, accountId);
     return parseOutboundMentions(text, index);
   } catch (err) {
     console.error(`[mention-parser] resolve failed for group ${groupId}:`, err);

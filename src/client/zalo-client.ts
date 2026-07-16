@@ -6,27 +6,25 @@ import {
   deleteCredentials,
   hasCredentials,
 } from "./credentials.js";
-import sharp from "sharp";
-import * as fs from "fs";
+import { readImageMetadata } from "../media/image-metadata.js";
 
-let apiInstance: API | null = null;
-let currentUid: string | null = null;
-/** [H2] Promise memoization to prevent concurrent login attempts */
-let loginPromise: Promise<API> | null = null;
+const apiInstances = new Map<string, API>();
+const currentUids = new Map<string, string>();
+/** [H2] Promise memoization to prevent concurrent login attempts per account. */
+const loginPromises = new Map<string, Promise<API>>();
+
+function normalizeAccountId(accountId?: string | null): string {
+  return String(accountId || "default").trim() || "default";
+}
 
 export type QrCallback = (event: LoginQRCallbackEvent) => unknown;
 
 async function imageMetadataGetter(filePath: string) {
-  const data = await fs.promises.readFile(filePath);
-  const metadata = await sharp(data).metadata();
-  return {
-    height: metadata.height || 0,
-    width: metadata.width || 0,
-    size: metadata.size || data.length,
-  };
+  return readImageMetadata(filePath);
 }
 
-export async function loginWithQR(callback?: QrCallback): Promise<API> {
+export async function loginWithQR(callback?: QrCallback, accountId?: string | null): Promise<API> {
+  const id = normalizeAccountId(accountId);
   const zalo = new Zalo({ logging: false, imageMetadataGetter });
   const api = await zalo.loginQR(undefined, (event) => {
     if (event.type === LoginQRCallbackEventType.GotLoginInfo && event.data) {
@@ -34,23 +32,24 @@ export async function loginWithQR(callback?: QrCallback): Promise<API> {
         imei: event.data.imei,
         cookie: event.data.cookie,
         userAgent: event.data.userAgent,
-      });
+      }, id);
     }
     callback?.(event);
   });
-  apiInstance = api;
+  apiInstances.set(id, api);
   try {
     const raw = await api.fetchAccountInfo();
     const info = (raw as any)?.profile ?? raw;
-    currentUid = info?.userId ?? null;
+    if (info?.userId) currentUids.set(id, String(info.userId));
   } catch {
     // non-critical
   }
   return api;
 }
 
-export async function loginWithCredentials(): Promise<API> {
-  const creds = loadCredentials();
+export async function loginWithCredentials(accountId?: string | null): Promise<API> {
+  const id = normalizeAccountId(accountId);
+  const creds = loadCredentials(id);
   if (!creds) {
     throw new Error("No saved credentials found. Login with QR first.");
   }
@@ -61,11 +60,11 @@ export async function loginWithCredentials(): Promise<API> {
     userAgent: creds.userAgent,
     language: creds.language,
   });
-  apiInstance = api;
+  apiInstances.set(id, api);
   try {
     const raw = await api.fetchAccountInfo();
     const info = (raw as any)?.profile ?? raw;
-    currentUid = info?.userId ?? null;
+    if (info?.userId) currentUids.set(id, String(info.userId));
   } catch {
     // non-critical
   }
@@ -76,47 +75,52 @@ export async function loginWithCredentials(): Promise<API> {
  * Get the API singleton safely with race condition protection.
  * [H2] Uses promise memoization — concurrent callers wait for the same login attempt.
  */
-export async function getApi(): Promise<API> {
-  if (apiInstance) {
-    return apiInstance;
+export async function getApi(accountId?: string | null): Promise<API> {
+  const id = normalizeAccountId(accountId);
+  const existing = apiInstances.get(id);
+  if (existing) {
+    return existing;
   }
-  if (!hasCredentials()) {
-    throw new Error("Not authenticated. Login with QR first.");
+  if (!hasCredentials(id)) {
+    throw new Error(`Not authenticated for account "${id}". Login with QR first.`);
   }
   // If a login is already in progress, wait for it
-  if (loginPromise) {
-    return loginPromise;
+  const pending = loginPromises.get(id);
+  if (pending) {
+    return pending;
   }
   // Start login and memoize the promise
-  loginPromise = loginWithCredentials().finally(() => {
-    loginPromise = null;
+  const promise = loginWithCredentials(id).finally(() => {
+    loginPromises.delete(id);
   });
-  return loginPromise;
+  loginPromises.set(id, promise);
+  return promise;
 }
 
-export function getApiSync(): API | null {
-  return apiInstance;
+export function getApiSync(accountId?: string | null): API | null {
+  return apiInstances.get(normalizeAccountId(accountId)) ?? null;
 }
 
-export function getCurrentUid(): string | null {
-  return currentUid;
+export function getCurrentUid(accountId?: string | null): string | null {
+  return currentUids.get(normalizeAccountId(accountId)) ?? null;
 }
 
-export function isAuthenticated(): boolean {
-  return apiInstance !== null;
+export function isAuthenticated(accountId?: string | null): boolean {
+  return apiInstances.has(normalizeAccountId(accountId));
 }
 
-export function hasStoredCredentials(): boolean {
-  return hasCredentials();
+export function hasStoredCredentials(accountId?: string | null): boolean {
+  return hasCredentials(normalizeAccountId(accountId));
 }
 
-export async function logout(): Promise<void> {
-  apiInstance = null;
-  currentUid = null;
-  loginPromise = null;
-  deleteCredentials();
+export async function logout(accountId?: string | null): Promise<void> {
+  const id = normalizeAccountId(accountId);
+  apiInstances.delete(id);
+  currentUids.delete(id);
+  loginPromises.delete(id);
+  deleteCredentials(id);
 }
 
-export async function ensureAuthenticated(): Promise<API> {
-  return getApi();
+export async function ensureAuthenticated(accountId?: string | null): Promise<API> {
+  return getApi(accountId);
 }

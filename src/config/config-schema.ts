@@ -50,7 +50,7 @@ const GroupEventsSchema = z.object({
 
 // --- Per-account config ---
 
-const ZaloClawAccountSchema = z.object({
+const ZaloConnectAccountSchema = z.object({
   /** Human-readable label for this account. */
   name: z.string().optional(),
   /** Enable/disable this account. */
@@ -74,27 +74,27 @@ const ZaloClawAccountSchema = z.object({
   /** Group event handlers: welcome, leave, kick, admin alerts. */
   groupEvents: GroupEventsSchema,
   // passiveCollector intentionally omitted from channel schema
-  // Configure via plugins.entries.zaloclaw.passiveCollector (hidden from UI)
+  // Configure via plugins.entries.zalo-connect.passiveCollector (hidden from UI)
 });
 
 // --- Full channel schema (account + multi-account) ---
 
 /** The top-level OpenClaw Zalo config Zod schema (Zod 4, has toJSONSchema). */
-const ZaloClawAccountSchemaForSdk =
-  ZaloClawAccountSchema as unknown as Parameters<typeof buildCatchallMultiAccountChannelSchema>[0];
+const ZaloConnectAccountSchemaForSdk =
+  ZaloConnectAccountSchema as unknown as Parameters<typeof buildCatchallMultiAccountChannelSchema>[0];
 
-export const ZaloClawConfigSchema =
-  buildCatchallMultiAccountChannelSchema(ZaloClawAccountSchemaForSdk);
+export const ZaloConnectConfigSchema =
+  buildCatchallMultiAccountChannelSchema(ZaloConnectAccountSchemaForSdk);
 
 // --- UI-aware config schema for the control panel ---
 
 /** Pre-built config schema with uiHints for the OpenClaw control UI. */
-export const ZaloClawChannelConfigSchema = buildChannelConfigSchema(
-  ZaloClawConfigSchema,
+export const ZaloConnectChannelConfigSchema = buildChannelConfigSchema(
+  ZaloConnectConfigSchema,
   {
     uiHints: {
       "": {
-        label: "ZaloClaw",
+        label: "OpenClaw Zalo Connect",
         help: "Channel status and configuration.",
       },
       dmPolicy: {

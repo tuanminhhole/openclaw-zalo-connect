@@ -1,15 +1,15 @@
 import { hasStoredCredentials } from "../client/zalo-client.js";
 import type { ChannelStatusIssue } from "openclaw/plugin-sdk/channel-contract";
 
-export function collectZaloClawStatusIssues(): ChannelStatusIssue[] {
+export function collectZaloConnectStatusIssues(): ChannelStatusIssue[] {
   const issues: ChannelStatusIssue[] = [];
 
   if (!hasStoredCredentials()) {
     issues.push({
-      channel: "zaloclaw",
+      channel: "zalo-connect",
       accountId: "default",
       kind: "auth",
-      message: "zaloclaw: not logged in (no credentials — run: openclaw channels login zaloclaw)",
+      message: "zalo-connect: not logged in (no credentials — run: openclaw channels login zalo-connect)",
     });
   }
 

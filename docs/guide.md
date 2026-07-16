@@ -1,6 +1,6 @@
-# ZaloClaw — Hướng dẫn cài đặt & cấu hình
+# OpenClaw Zalo Connect — Hướng dẫn cài đặt & cấu hình
 
-> Hướng dẫn này dành cho người lần đầu cài đặt ZaloClaw. Bạn sẽ đi từ zero đến bot Zalo AI hoàn chỉnh trong ~10 phút.
+> Hướng dẫn này dành cho người lần đầu cài đặt OpenClaw Zalo Connect. Bạn sẽ đi từ zero đến bot Zalo AI hoàn chỉnh trong ~10 phút.
 
 ---
 
@@ -8,7 +8,7 @@
 
 1. [Yêu cầu](#1-yêu-cầu)
 2. [Cài OpenClaw](#2-cài-openclaw)
-3. [Cài ZaloClaw](#3-cài-zaloclaw)
+3. [Cài OpenClaw Zalo Connect](#3-cài-openclaw-zalo-connect)
 4. [Đăng nhập Zalo bằng QR](#4-đăng-nhập-zalo-bằng-qr)
 5. [Cấu hình cơ bản](#5-cấu-hình-cơ-bản)
 6. [Kiểm tra hoạt động](#6-kiểm-tra-hoạt-động)
@@ -26,7 +26,7 @@
 | Tài khoản Zalo | Cá nhân (không phải OA) |
 | OS | Linux / macOS / Windows (WSL2) |
 
-> **Lưu ý:** ZaloClaw hoạt động trên tài khoản Zalo **cá nhân**, không phải Zalo Official Account (OA). Tài khoản OA cần dùng Zalo API riêng.
+> **Lưu ý:** ZaloConnect hoạt động trên tài khoản Zalo **cá nhân**, không phải Zalo Official Account (OA). Tài khoản OA cần dùng Zalo API riêng.
 
 ---
 
@@ -49,42 +49,52 @@ openclaw status
 
 ---
 
-## 3. Cài ZaloClaw
+## 3. Cài OpenClaw Zalo Connect
 
-### Cách A — ClawHub _(nhanh nhất)_
+### Cách A — OpenClaw Setup _(khuyên dùng)_
 
 ```bash
-openclaw plugins install clawhub:zaloclaw
+npx create-openclaw-bot
+```
+
+Trong dashboard, chọn **Zalo cá nhân** khi tạo bot hoặc bấm **Đăng nhập Zalo**.
+Setup sẽ tự tải đúng release nếu máy chưa có plugin và dùng lại bản đã cài ở
+những lần đăng nhập sau.
+
+### Cách B — Cài release từ Git
+
+Máy cần có Git, Node.js 22+ và OpenClaw:
+
+```bash
+git clone --depth 1 --branch v3.0.0 \
+  https://github.com/tuanminhhole/openclaw-zalo-connect.git
+openclaw plugins install ./openclaw-zalo-connect
 openclaw gateway restart
 ```
 
-### Cách B — npm
+Release đã chứa bundle runtime hoàn chỉnh, không cần chạy `npm install`.
+
+### Cách C — Link source _(dành cho phát triển)_
 
 ```bash
-openclaw plugins install zaloclaw
-openclaw gateway restart
-```
-
-### Cách C — Clone thủ công _(dành cho dev / tùy chỉnh)_
-
-```bash
-git clone https://github.com/monas-team/zaloclaw.git ~/zaloclaw
-cd ~/zaloclaw
+git clone https://github.com/tuanminhhole/openclaw-zalo-connect.git ~/openclaw-zalo-connect
+cd ~/openclaw-zalo-connect
 npm install
-openclaw plugins install --link ~/zaloclaw
+npm run build
+openclaw plugins install --link ~/openclaw-zalo-connect
 openclaw gateway restart
 ```
 
 > Dùng `--link` để plugin load trực tiếp từ thư mục — tiện cho việc phát triển vì không cần reinstall sau khi sửa code.
 
-**Sau khi cài xong, mở session chat mới với agent.** Tool `zaloclaw` được đăng ký lúc gateway khởi động — session cũ sẽ không thấy cho đến khi refresh.
+**Sau khi cài xong, mở session chat mới với agent.** Tool `zalo-connect` được đăng ký lúc gateway khởi động — session cũ sẽ không thấy cho đến khi refresh.
 
 ---
 
 ## 4. Đăng nhập Zalo bằng QR
 
 ```bash
-openclaw channels login --channel zaloclaw
+openclaw channels login --channel zalo-connect
 ```
 
 Terminal hiện mã QR:
@@ -109,9 +119,11 @@ Sau khi quét thành công, terminal sẽ hiện:
 ✔ Logged in as [Tên Zalo của bạn]
 ```
 
-> **QR hết hạn?** Chạy lại lệnh `openclaw channels login --channel zaloclaw` để lấy QR mới.
+> **QR hết hạn?** Chạy lại lệnh `openclaw channels login --channel zalo-connect` để lấy QR mới.
 
-> **Lỗi `Unsupported channel "zaloclaw"`?** Chạy `openclaw setup` thay thế — cùng luồng QR, tương thích mọi phiên bản.
+> **Lỗi `Unsupported channel "zalo-connect"`?** Kiểm tra plugin bằng
+> `openclaw plugins inspect zalo-connect --runtime`. Nếu plugin chưa load, cài
+> lại bằng OpenClaw Setup hoặc release Git ở bước 3 rồi khởi động lại gateway.
 
 ---
 
@@ -124,7 +136,7 @@ File config: `~/.openclaw/openclaw.json`
 ```json
 {
   "channels": {
-    "zaloclaw": {
+    "zalo-connect": {
       "enabled": true,
       "dmPolicy": "open",
       "groupPolicy": "open"
@@ -138,7 +150,7 @@ File config: `~/.openclaw/openclaw.json`
 ```jsonc
 {
   "channels": {
-    "zaloclaw": {
+    "zalo-connect": {
       "enabled": true,
 
       // DM policy: open | pairing | allowlist | disabled
@@ -180,7 +192,7 @@ Cách lấy ID của nhóm Zalo:
 
 ```bash
 # Hỏi agent qua chat:
-# "dùng tool zaloclaw action groups để liệt kê nhóm"
+# "dùng tool zalo-connect action groups để liệt kê nhóm"
 ```
 
 hoặc agent dùng tool:
@@ -198,7 +210,7 @@ openclaw channels status
 
 Kết quả mong đợi:
 ```
-- ZaloClaw default: enabled, configured, running, connected
+- ZaloConnect default: enabled, configured, running, connected
 ```
 
 **Test nhanh từ Zalo:**
@@ -232,7 +244,7 @@ Dùng để bot có thể recall lịch sử khi được hỏi.
 {
   "plugins": {
     "entries": {
-      "zaloclaw": {
+      "zalo-connect": {
         "config": {
           "passiveCollector": { "enabled": true }
         }
@@ -242,7 +254,7 @@ Dùng để bot có thể recall lịch sử khi được hỏi.
 }
 ```
 
-File lưu tại: `~/.openclaw/workspace/zaloclaw/passive/{groupId}.jsonl`
+File lưu tại: `~/.openclaw/workspace/zalo-connect/passive/{groupId}.jsonl`
 
 **Recall lịch sử qua tool:**
 
@@ -261,7 +273,7 @@ Bot tự động chào khi có người vào/ra nhóm:
 ```json
 {
   "channels": {
-    "zaloclaw": {
+    "zalo-connect": {
       "groupEvents": {
         "enabled": true,
         "welcome": true,
@@ -285,7 +297,7 @@ Phát hiện và cảnh báo khi thành viên cố tình can thiệp vào bot:
 {
   "plugins": {
     "entries": {
-      "zaloclaw": {
+      "zalo-connect": {
         "config": {
           "injectionGuard": {
             "autoRemove": false
@@ -328,21 +340,21 @@ Scope: `0` = tất cả · `1` = người lạ · `2` = bạn bè cụ thể
 ### Session hết hạn (`dm:pairing` hoặc `disconnected`)
 
 ```bash
-openclaw channels login --channel zaloclaw
+openclaw channels login --channel zalo-connect
 # Quét QR mới
 ```
 
 ### Lỗi sau khi cài plugin lần đầu
 
 ```bash
-# Tool zaloclaw chưa hiện trong agent → mở session chat mới
+# Tool zalo-connect chưa hiện trong agent → mở session chat mới
 # Không cần reinstall — chỉ cần refresh session
 ```
 
 ### Kiểm tra plugin đã load đúng chưa
 
 ```bash
-openclaw plugins inspect zaloclaw --runtime
+openclaw plugins inspect zalo-connect --runtime
 # Xem: status: loaded, diagnostics: []
 ```
 
@@ -358,7 +370,6 @@ openclaw gateway restart
 
 ## Tham khảo thêm
 
-- [151 Actions Reference](actions.md) — tất cả actions, params, ví dụ
-- [ClawHub](https://clawhub.ai/plugins/zaloclaw) — trang plugin chính thức
+- [149 Actions Reference](actions.md) — tất cả actions, params, ví dụ
 - [OpenClaw Docs](https://docs.openclaw.ai) — tài liệu OpenClaw
-- [Issues](https://github.com/monas-team/zaloclaw/issues) — báo lỗi / đề xuất
+- [Issues](https://github.com/tuanminhhole/openclaw-zalo-connect/issues) — báo lỗi / đề xuất

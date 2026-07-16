@@ -3,7 +3,7 @@
  *
  * Stores ALL Zalo group messages to a JSONL log file — no AI calls, no external services.
  *
- * Storage: ~/.openclaw/workspace/zaloclaw/passive/{groupId}.jsonl
+ * Storage: ~/.openclaw/workspace/zalo-connect/passive/{groupId}.jsonl
  * Format: one JSON record per line (JSONL — text-visible, zero dependency)
  *
  * Design goals:
@@ -24,7 +24,7 @@ export const PASSIVE_DIR = path.join(
   os.homedir(),
   ".openclaw",
   "workspace",
-  "zaloclaw",
+  "zalo-connect",
   "passive",
 );
 

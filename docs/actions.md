@@ -1,6 +1,6 @@
-# ZaloClaw — 151 Actions Reference
+# OpenClaw Zalo Connect — 149 Actions Reference
 
-Plugin expose **một tool duy nhất** tên `zaloclaw` với 151 actions.  
+Plugin expose **một tool duy nhất** tên `zalo-connect` với 149 actions.
 Tên người dùng và tên nhóm **tự động resolve** thành Zalo numeric ID.
 
 ---

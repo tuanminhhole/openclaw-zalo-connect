@@ -1,10 +1,10 @@
-# Đóng góp cho zaloclaw
+# Đóng góp cho OpenClaw Zalo Connect
 
 ## Thiết lập
 
 ```bash
-git clone https://github.com/monas-team/zaloclaw.git
-cd zaloclaw
+git clone https://github.com/tuanminhhole/openclaw-zalo-connect.git
+cd openclaw-zalo-connect
 npm install
 ```
 
@@ -29,6 +29,6 @@ openclaw gateway restart
 
 ## Báo lỗi / đề xuất tính năng
 
-Mở issue tại: https://github.com/monas-team/zaloclaw/issues
+Mở issue tại: https://github.com/tuanminhhole/openclaw-zalo-connect/issues
 
 Đối với lỗ hổng bảo mật — xem [SECURITY.md](SECURITY.md).

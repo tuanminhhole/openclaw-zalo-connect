@@ -1,4 +1,4 @@
-export type ZaloClawAccountConfig = {
+export type ZaloConnectAccountConfig = {
   enabled?: boolean;
   name?: string;
   dmPolicy?: "pairing" | "allowlist" | "open" | "disabled";
@@ -20,7 +20,7 @@ export type ZaloClawAccountConfig = {
   responsePrefix?: string;
 };
 
-export type ZaloClawConfig = {
+export type ZaloConnectConfig = {
   enabled?: boolean;
   name?: string;
   defaultAccount?: string;
@@ -41,36 +41,36 @@ export type ZaloClawConfig = {
   >;
   messagePrefix?: string;
   responsePrefix?: string;
-  accounts?: Record<string, ZaloClawAccountConfig>;
+  accounts?: Record<string, ZaloConnectAccountConfig>;
 };
 
-export type ResolvedZaloClawAccount = {
+export type ResolvedZaloConnectAccount = {
   accountId: string;
   name?: string;
   enabled: boolean;
   authenticated: boolean;
-  config: ZaloClawAccountConfig;
+  config: ZaloConnectAccountConfig;
 };
 
-export type ZaloClawUserInfo = {
+export type ZaloConnectUserInfo = {
   userId: string;
   displayName: string;
   avatar?: string;
 };
 
-export type ZaloClawFriend = {
+export type ZaloConnectFriend = {
   userId: string;
   displayName: string;
   avatar?: string;
 };
 
-export type ZaloClawGroup = {
+export type ZaloConnectGroup = {
   groupId: string;
   name: string;
   memberCount?: number;
 };
 
-export type ZaloClawMessage = {
+export type ZaloConnectMessage = {
   threadId: string;
   msgId?: string;
   cliMsgId?: string;

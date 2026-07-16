@@ -16,21 +16,21 @@ import {
   normalizeAccountId,
   setAccountEnabledInConfigSection,
 } from "openclaw/plugin-sdk/channel-plugin-common";
-import type { ZaloClawFriend, ZaloClawGroup, ZaloClawUserInfo } from "../runtime/types.js";
+import type { ZaloConnectFriend, ZaloConnectGroup, ZaloConnectUserInfo } from "../runtime/types.js";
 import {
-  listZaloClawAccountIds,
-  resolveDefaultZaloClawAccountId,
-  resolveZaloClawAccountSync,
-  getZaloClawUserInfo,
-  checkZaloClawAuthenticated,
-  type ResolvedZaloClawAccount,
+  listZaloConnectAccountIds,
+  resolveDefaultZaloConnectAccountId,
+  resolveZaloConnectAccountSync,
+  getZaloConnectUserInfo,
+  checkZaloConnectAuthenticated,
+  type ResolvedZaloConnectAccount,
 } from "../client/accounts.js";
-import { ZaloClawConfigSchema, ZaloClawChannelConfigSchema } from "../config/config-schema.js";
-import { zaloClawOnboardingAdapter } from "./onboarding.js";
-import { probeZaloClaw } from "./probe.js";
-import { sendMessageZaloClaw, isLocalFilePath } from "./send.js";
+import { ZaloConnectConfigSchema, ZaloConnectChannelConfigSchema } from "../config/config-schema.js";
+import { zaloConnectOnboardingAdapter } from "./onboarding.js";
+import { probeZaloConnect } from "./probe.js";
+import { sendMessageZaloConnect, isLocalFilePath } from "./send.js";
 import { isKnownGroupId } from "../features/group-id-cache.js";
-import { collectZaloClawStatusIssues } from "../runtime/status-issues.js";
+import { collectZaloConnectStatusIssues } from "../runtime/status-issues.js";
 import { hasStoredCredentials, loginWithQR } from "../client/zalo-client.js";
 import { LoginQRCallbackEventType } from "zca-js";
 import { displayQRFromPNG } from "../client/qr-display.js";
@@ -38,11 +38,11 @@ import * as fs from "fs";
 import * as readline from "readline";
 
 const meta = {
-  id: "zaloclaw",
-  label: "ZaloClaw",
-  selectionLabel: "ZaloClaw Account",
-  docsPath: "/channels/zaloclaw",
-  docsLabel: "zaloclaw",
+  id: "zalo-connect",
+  label: "OpenClaw Zalo Connect",
+  selectionLabel: "ZaloConnect Account",
+  docsPath: "/channels/zalo-connect",
+  docsLabel: "zalo-connect",
   blurb: "Zalo personal account via zca-js library (no CLI needed).",
   aliases: ["oz"],
   order: 86,
@@ -77,8 +77,8 @@ function mapGroup(params: {
   };
 }
 
-function resolveZaloClawGroupRequireMention(params: ChannelGroupContext): boolean {
-  const account = resolveZaloClawAccountSync({
+function resolveZaloConnectGroupRequireMention(params: ChannelGroupContext): boolean {
+  const account = resolveZaloConnectAccountSync({
     cfg: params.cfg,
     accountId: params.accountId ?? undefined,
   });
@@ -93,10 +93,10 @@ function resolveZaloClawGroupRequireMention(params: ChannelGroupContext): boolea
   return true;
 }
 
-function resolveZaloClawGroupToolPolicy(
+function resolveZaloConnectGroupToolPolicy(
   params: ChannelGroupContext,
 ): GroupToolPolicyConfig | undefined {
-  const account = resolveZaloClawAccountSync({
+  const account = resolveZaloConnectAccountSync({
     cfg: params.cfg,
     accountId: params.accountId ?? undefined,
   });
@@ -112,10 +112,10 @@ function resolveZaloClawGroupToolPolicy(
 }
 
 
-export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
-  id: "zaloclaw",
+export const zaloConnectPlugin: ChannelPlugin<ResolvedZaloConnectAccount> = {
+  id: "zalo-connect",
   meta,
-  setupWizard: zaloClawOnboardingAdapter,
+  setupWizard: zaloConnectOnboardingAdapter,
   capabilities: {
     chatTypes: ["direct", "group"],
     media: true,
@@ -125,16 +125,16 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
     nativeCommands: false,
     blockStreaming: true,
   },
-  reload: { configPrefixes: ["channels['zaloclaw']"] },
-  configSchema: ZaloClawChannelConfigSchema,
+  reload: { configPrefixes: ["channels['zalo-connect']"] },
+  configSchema: ZaloConnectChannelConfigSchema,
   config: {
-    listAccountIds: (cfg) => listZaloClawAccountIds(cfg),
-    resolveAccount: (cfg, accountId) => resolveZaloClawAccountSync({ cfg, accountId }),
-    defaultAccountId: (cfg) => resolveDefaultZaloClawAccountId(cfg),
+    listAccountIds: (cfg) => listZaloConnectAccountIds(cfg),
+    resolveAccount: (cfg, accountId) => resolveZaloConnectAccountSync({ cfg, accountId }),
+    defaultAccountId: (cfg) => resolveDefaultZaloConnectAccountId(cfg),
     setAccountEnabled: ({ cfg, accountId, enabled }) =>
       setAccountEnabledInConfigSection({
         cfg,
-        sectionKey: "zaloclaw",
+        sectionKey: "zalo-connect",
         accountId,
         enabled,
         allowTopLevel: true,
@@ -142,7 +142,7 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
     deleteAccount: ({ cfg, accountId }) =>
       deleteAccountFromConfigSection({
         cfg,
-        sectionKey: "zaloclaw",
+        sectionKey: "zalo-connect",
         accountId,
         clearBaseFields: [
           "name",
@@ -153,44 +153,44 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
           "messagePrefix",
         ],
       }),
-    isConfigured: async () => hasStoredCredentials(),
+    isConfigured: async (account) => hasStoredCredentials(account?.accountId),
     describeAccount: (account): ChannelAccountSnapshot => ({
       accountId: account.accountId,
       name: account.name,
       enabled: account.enabled,
-      configured: hasStoredCredentials(),
+      configured: hasStoredCredentials(account.accountId),
     }),
     resolveAllowFrom: ({ cfg, accountId }) =>
-      (resolveZaloClawAccountSync({ cfg, accountId }).config.allowFrom ?? []).map((entry) =>
+      (resolveZaloConnectAccountSync({ cfg, accountId }).config.allowFrom ?? []).map((entry) =>
         String(entry),
       ),
     formatAllowFrom: ({ allowFrom }) =>
       allowFrom
         .map((entry) => String(entry).trim())
         .filter(Boolean)
-        .map((entry) => entry.replace(/^(zaloclaw|oz):/i, ""))
+        .map((entry) => entry.replace(/^(zalo-connect|oz):/i, ""))
         .map((entry) => entry.toLowerCase()),
   },
   security: {
     resolveDmPolicy: ({ cfg, accountId, account }) => {
       const resolvedAccountId = accountId ?? account.accountId ?? DEFAULT_ACCOUNT_ID;
-      const useAccountPath = Boolean(cfg.channels?.['zaloclaw']?.accounts?.[resolvedAccountId]);
+      const useAccountPath = Boolean(cfg.channels?.['zalo-connect']?.accounts?.[resolvedAccountId]);
       const basePath = useAccountPath
-        ? `channels['zaloclaw'].accounts.${resolvedAccountId}.`
-        : "channels['zaloclaw'].";
+        ? `channels['zalo-connect'].accounts.${resolvedAccountId}.`
+        : "channels['zalo-connect'].";
       return {
         policy: account.config.dmPolicy ?? "open",
         allowFrom: account.config.allowFrom ?? ["*"],
         policyPath: `${basePath}dmPolicy`,
         allowFromPath: basePath,
-        approveHint: formatPairingApproveHint("zaloclaw"),
-        normalizeEntry: (raw) => raw.replace(/^(zaloclaw|oz):/i, ""),
+        approveHint: formatPairingApproveHint("zalo-connect"),
+        normalizeEntry: (raw) => raw.replace(/^(zalo-connect|oz):/i, ""),
       };
     },
   },
   groups: {
-    resolveRequireMention: resolveZaloClawGroupRequireMention,
-    resolveToolPolicy: resolveZaloClawGroupToolPolicy,
+    resolveRequireMention: resolveZaloConnectGroupRequireMention,
+    resolveToolPolicy: resolveZaloConnectGroupToolPolicy,
   },
   agentPrompt: {
     messageToolHints: () => [
@@ -203,25 +203,25 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
   setup: {
     resolveAccountId: ({ accountId }) => normalizeAccountId(accountId),
     applyAccountName: ({ cfg, accountId, name }) =>
-      applyAccountNameToChannelSection({ cfg, channelKey: "zaloclaw", accountId, name }),
+      applyAccountNameToChannelSection({ cfg, channelKey: "zalo-connect", accountId, name }),
     validateInput: () => null,
     applyAccountConfig: ({ cfg, accountId, input }) => {
       const namedConfig = applyAccountNameToChannelSection({
         cfg,
-        channelKey: "zaloclaw",
+        channelKey: "zalo-connect",
         accountId,
         name: input.name,
       });
       const next =
         accountId !== DEFAULT_ACCOUNT_ID
-          ? migrateBaseNameToDefaultAccount({ cfg: namedConfig, channelKey: "zaloclaw" })
+          ? migrateBaseNameToDefaultAccount({ cfg: namedConfig, channelKey: "zalo-connect" })
           : namedConfig;
       if (accountId === DEFAULT_ACCOUNT_ID) {
         return {
           ...next,
           channels: {
             ...next.channels,
-            'zaloclaw': { ...next.channels?.['zaloclaw'], enabled: true },
+            'zalo-connect': { ...next.channels?.['zalo-connect'], enabled: true },
           },
         } as OpenClawConfig;
       }
@@ -229,13 +229,13 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
         ...next,
         channels: {
           ...next.channels,
-          'zaloclaw': {
-            ...next.channels?.['zaloclaw'],
+          'zalo-connect': {
+            ...next.channels?.['zalo-connect'],
             enabled: true,
             accounts: {
-              ...next.channels?.['zaloclaw']?.accounts,
+              ...next.channels?.['zalo-connect']?.accounts,
               [accountId]: {
-                ...next.channels?.['zaloclaw']?.accounts?.[accountId],
+                ...next.channels?.['zalo-connect']?.accounts?.[accountId],
                 enabled: true,
               },
             },
@@ -248,7 +248,7 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
     normalizeTarget: (raw) => {
       const trimmed = raw?.trim();
       if (!trimmed) return undefined;
-      return trimmed.replace(/^(zaloclaw|oz):/i, "");
+      return trimmed.replace(/^(zalo-connect|oz):/i, "");
     },
     targetResolver: {
       looksLikeId: (raw) => {
@@ -263,7 +263,7 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
     self: async ({ cfg, accountId, runtime }) => {
       try {
         const { getApi } = await import("../client/zalo-client.js");
-        const api = await getApi();
+        const api = await getApi(accountId);
         const raw = await api.fetchAccountInfo();
         const info = (raw as any)?.profile ?? raw;
         if (!info?.userId) return null;
@@ -280,7 +280,7 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
     },
     listPeers: async ({ cfg, accountId, query, limit }) => {
       const { getApi } = await import("../client/zalo-client.js");
-      const api = await getApi();
+      const api = await getApi(accountId);
       const friends = await api.getAllFriends();
       let rows: ChannelDirectoryEntry[] = [];
       if (Array.isArray(friends)) {
@@ -303,7 +303,7 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
     },
     listGroups: async ({ cfg, accountId, query, limit }) => {
       const { getApi } = await import("../client/zalo-client.js");
-      const api = await getApi();
+      const api = await getApi(accountId);
       const groupsResp = await api.getAllGroups();
       const groupIds = Object.keys(groupsResp?.gridVerMap ?? {});
       let rows: ChannelDirectoryEntry[] = [];
@@ -326,7 +326,7 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
     },
     listGroupMembers: async ({ cfg, accountId, groupId, limit }) => {
       const { getApi } = await import("../client/zalo-client.js");
-      const api = await getApi();
+      const api = await getApi(accountId);
       const infoResp = await api.getGroupInfo(groupId);
       const groupInfo = infoResp?.gridInfoMap?.[groupId];
       let memberIds: string[] = groupInfo?.memberIds ?? [];
@@ -368,7 +368,7 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
         }
         try {
           const { getApi } = await import("../client/zalo-client.js");
-          const api = await getApi();
+          const api = await getApi(accountId);
           if (kind === "user") {
             const friends = await api.getAllFriends();
             const friendList = Array.isArray(friends) ? friends : [];
@@ -413,7 +413,7 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
             });
           }
         } catch (err) {
-          runtime.error?.(`zaloclaw resolve failed: ${String(err)}`);
+          runtime.error?.(`zalo-connect resolve failed: ${String(err)}`);
           results.push({ input, resolved: false, note: "lookup failed" });
         }
       }
@@ -421,17 +421,17 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
     },
   },
   pairing: {
-    idLabel: "zaloClawUserId",
-    normalizeAllowEntry: (entry) => entry.replace(/^(zaloclaw|oz):/i, ""),
+    idLabel: "zaloConnectUserId",
+    normalizeAllowEntry: (entry) => entry.replace(/^(zalo-connect|oz):/i, ""),
     notifyApproval: async ({ cfg, id }) => {
-      const authenticated = await checkZaloClawAuthenticated();
-      if (!authenticated) throw new Error("ZaloClaw not authenticated");
-      await sendMessageZaloClaw(id, "Your pairing request has been approved.");
+      const authenticated = await checkZaloConnectAuthenticated();
+      if (!authenticated) throw new Error("ZaloConnect not authenticated");
+      await sendMessageZaloConnect(id, "Your pairing request has been approved.");
     },
   },
   auth: {
     login: async ({ cfg, accountId, runtime }) => {
-      runtime.log(`Scan the QR code to link ZaloClaw (account: ${accountId ?? DEFAULT_ACCOUNT_ID}).`);
+      runtime.log(`Scan the QR code to link ZaloConnect (account: ${accountId ?? DEFAULT_ACCOUNT_ID}).`);
       let qrFilePath: string | null = null;
       try {
         await loginWithQR(async (event) => {
@@ -444,7 +444,7 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
           } else if (event.type === LoginQRCallbackEventType.QRCodeScanned) {
             runtime.log("QR code scanned. Please confirm on your phone.");
           }
-        });
+        }, accountId);
         runtime.log("Login successful!");
         if (qrFilePath) {
           try { fs.unlinkSync(qrFilePath); } catch {}
@@ -496,20 +496,20 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
     chunkerMode: "markdown",
     textChunkLimit: 2000,
     sendText: async ({ to, text, accountId, cfg }) => {
-      const account = resolveZaloClawAccountSync({ cfg, accountId });
+      const account = resolveZaloConnectAccountSync({ cfg, accountId });
       const isGroup = isKnownGroupId(to);
-      const result = await sendMessageZaloClaw(to, text, { isGroup });
+      const result = await sendMessageZaloConnect(to, text, { isGroup, accountId: account.accountId });
       return {
-        channel: "zaloclaw",
+        channel: "zalo-connect",
         ok: result.ok,
         messageId: result.messageId ?? "",
         error: result.error ? new Error(result.error) : undefined,
       };
     },
     sendMedia: async ({ to, text, mediaUrl, accountId, cfg }) => {
-      const account = resolveZaloClawAccountSync({ cfg, accountId });
+      const account = resolveZaloConnectAccountSync({ cfg, accountId });
       const isGroup = isKnownGroupId(to);
-      let options: any = { isGroup };
+      let options: any = { isGroup, accountId: account.accountId };
       if (mediaUrl && isLocalFilePath(mediaUrl) && fs.existsSync(mediaUrl)) {
         options.localPath = mediaUrl;
         options.caption = text;
@@ -517,9 +517,9 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
         options.mediaUrl = mediaUrl;
         options.caption = text;
       }
-      const result = await sendMessageZaloClaw(to, text, options);
+      const result = await sendMessageZaloConnect(to, text, options);
       return {
-        channel: "zaloclaw",
+        channel: "zalo-connect",
         ok: result.ok,
         messageId: result.messageId ?? "",
         error: result.error ? new Error(result.error) : undefined,
@@ -534,7 +534,7 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
       lastStopAt: null,
       lastError: null,
     },
-    collectStatusIssues: (_accounts) => collectZaloClawStatusIssues(),
+    collectStatusIssues: (_accounts) => collectZaloConnectStatusIssues(),
     buildChannelSummary: ({ snapshot }) => ({
       configured: snapshot.configured ?? false,
       running: snapshot.running ?? false,
@@ -544,9 +544,9 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
       probe: snapshot.probe,
       lastProbeAt: snapshot.lastProbeAt ?? null,
     }),
-    probeAccount: async ({ account }) => probeZaloClaw(),
+    probeAccount: async ({ account }) => probeZaloConnect(account.accountId),
     buildAccountSnapshot: async ({ account, runtime }) => {
-      const configured = hasStoredCredentials();
+      const configured = hasStoredCredentials(account.accountId);
       return {
         accountId: account.accountId,
         name: account.name,
@@ -569,13 +569,13 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
       const account = ctx.account;
       let userLabel = "";
       try {
-        const userInfo = await getZaloClawUserInfo();
+        const userInfo = await getZaloConnectUserInfo(account.accountId);
         if (userInfo?.displayName) userLabel = ` (${userInfo.displayName})`;
         ctx.setStatus({ accountId: account.accountId, profile: userInfo });
       } catch {}
-      ctx.log?.info(`[${account.accountId}] starting zaloclaw provider${userLabel}`);
-      const { monitorZaloClawProvider } = await import("./monitor.js");
-      return monitorZaloClawProvider({
+      ctx.log?.info(`[${account.accountId}] starting zalo-connect provider${userLabel}`);
+      const { monitorZaloConnectProvider } = await import("./monitor.js");
+      return monitorZaloConnectProvider({
         account,
         config: ctx.cfg,
         runtime: ctx.runtime,
@@ -590,7 +590,7 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
           if (event.type === LoginQRCallbackEventType.QRCodeGenerated && event.data) {
             qrDataUrl = `data:image/png;base64,${event.data.image}`;
           }
-        });
+        }, params.accountId);
         await new Promise((resolve) => setTimeout(resolve, 3000));
         if (qrDataUrl) return { qrDataUrl, message: "Scan QR code with Zalo app" };
         await loginPromise;
@@ -600,15 +600,15 @@ export const zaloClawPlugin: ChannelPlugin<ResolvedZaloClawAccount> = {
       }
     },
     loginWithQrWait: async (params) => {
-      const connected = hasStoredCredentials();
+      const connected = hasStoredCredentials(params.accountId);
       return { connected, message: connected ? "Login successful" : "Login pending" };
     },
     logoutAccount: async (ctx) => {
       const { logout } = await import("../client/zalo-client.js");
-      await logout();
+      await logout(ctx.accountId);
       return { cleared: true, loggedOut: true, message: "Logged out and credentials cleared" };
     },
   },
 };
 
-export type { ResolvedZaloClawAccount };
+export type { ResolvedZaloConnectAccount };

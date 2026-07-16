@@ -34,3 +34,6 @@ session-*.json
 # Temp files
 tmp/
 *.tmp
+
+# Internal engineering documentation (never publish)
+docs_dev/

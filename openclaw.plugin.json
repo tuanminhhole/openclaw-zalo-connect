@@ -1,17 +1,18 @@
 {
-  "id": "zaloclaw",
-  "name": "ZaloClaw",
-  "description": "Zalo personal account messaging for OpenClaw via zca-js. Connect your personal Zalo account as a fully-featured AI agent channel with 147 actions.",
-  "version": "2.4.6",
-  "author": "monas-team",
+  "id": "zalo-connect",
+  "name": "OpenClaw Zalo Connect",
+  "description": "Zalo personal account messaging for OpenClaw via zca-js. Connect your personal Zalo account as a fully-featured AI agent channel with 149 actions.",
+  "icon": "https://cdn.simpleicons.org/zalo",
+  "version": "3.0.0",
+  "author": "tuanminhhole",
   "license": "MIT",
-  "homepage": "https://github.com/monas-team/zaloclaw",
+  "homepage": "https://github.com/tuanminhhole/openclaw-zalo-connect",
   "kind": "channel",
   "channels": [
-    "zaloclaw"
+    "zalo-connect"
   ],
   "channelConfigs": {
-    "zaloclaw": {
+    "zalo-connect": {
       "schema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -349,7 +350,7 @@
       },
       "uiHints": {
         "": {
-          "label": "ZaloClaw",
+          "label": "ZaloConnect",
           "help": "Channel status and configuration."
         },
         "dmPolicy": {
@@ -413,7 +414,7 @@
         "properties": {
           "enabled": {
             "type": "boolean",
-            "description": "Enable passive collection of group messages. Files stored at ~/.openclaw/workspace/zaloclaw/passive/{groupId}.jsonl. Default: false."
+            "description": "Enable passive collection of group messages. Files stored at ~/.openclaw/workspace/zalo-connect/passive/{groupId}.jsonl. Default: false."
           }
         },
         "additionalProperties": false
@@ -433,7 +434,7 @@
   },
   "contracts": {
     "tools": [
-      "zaloclaw"
+      "zalo-connect"
     ]
   },
   "activation": {

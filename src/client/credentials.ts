@@ -10,9 +10,19 @@ import { readFileSync, writeFileSync, unlinkSync, existsSync, chmodSync, mkdirSy
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 
-const CREDENTIALS_PATH = join(homedir(), ".openclaw", "zaloclaw-credentials.json");
+function normalizeAccountId(accountId?: string | null): string {
+  return String(accountId || "default").trim() || "default";
+}
 
-export type ZaloClawCredentials = {
+function credentialPath(accountId?: string | null): string {
+  const normalized = normalizeAccountId(accountId);
+  const suffix = normalized === "default"
+    ? ""
+    : `-${normalized.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+  return join(homedir(), ".openclaw", `zalo-connect-credentials${suffix}.json`);
+}
+
+export type ZaloConnectCredentials = {
   imei: string;
   cookie: unknown;
   userAgent: string;
@@ -23,43 +33,46 @@ export type ZaloClawCredentials = {
  * Save credentials to disk with restrictive file permissions.
  * [H1] chmod 0600 — only the file owner can read/write.
  */
-export function saveCredentials(data: ZaloClawCredentials): void {
-  const dir = dirname(CREDENTIALS_PATH);
+export function saveCredentials(data: ZaloConnectCredentials, accountId?: string | null): void {
+  const path = credentialPath(accountId);
+  const dir = dirname(path);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
-  writeFileSync(CREDENTIALS_PATH, JSON.stringify(data, null, 2), { encoding: "utf-8", mode: 0o600 });
+  writeFileSync(path, JSON.stringify(data, null, 2), { encoding: "utf-8", mode: 0o600 });
   // Ensure permissions even if file existed with different mode
-  try { chmodSync(CREDENTIALS_PATH, 0o600); } catch {
+  try { chmodSync(path, 0o600); } catch {
     // Non-critical — may fail on Windows
   }
 }
 
-export function loadCredentials(): ZaloClawCredentials | null {
-  if (!existsSync(CREDENTIALS_PATH)) {
+export function loadCredentials(accountId?: string | null): ZaloConnectCredentials | null {
+  const path = credentialPath(accountId);
+  if (!existsSync(path)) {
     return null;
   }
   try {
-    const raw = readFileSync(CREDENTIALS_PATH, "utf-8");
-    return JSON.parse(raw) as ZaloClawCredentials;
+    const raw = readFileSync(path, "utf-8");
+    return JSON.parse(raw) as ZaloConnectCredentials;
   } catch {
     return null;
   }
 }
 
-export function deleteCredentials(): void {
-  if (existsSync(CREDENTIALS_PATH)) {
-    unlinkSync(CREDENTIALS_PATH);
+export function deleteCredentials(accountId?: string | null): void {
+  const path = credentialPath(accountId);
+  if (existsSync(path)) {
+    unlinkSync(path);
   }
 }
 
-export function hasCredentials(): boolean {
-  return existsSync(CREDENTIALS_PATH);
+export function hasCredentials(accountId?: string | null): boolean {
+  return existsSync(credentialPath(accountId));
 }
 
-export function refreshCredentials(freshCookies: unknown): void {
-  const existing = loadCredentials();
+export function refreshCredentials(freshCookies: unknown, accountId?: string | null): void {
+  const existing = loadCredentials(accountId);
   if (!existing) return;
   existing.cookie = freshCookies;
-  saveCredentials(existing);
+  saveCredentials(existing, accountId);
 }

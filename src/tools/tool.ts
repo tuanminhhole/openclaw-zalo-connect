@@ -10,6 +10,7 @@
  */
 
 import { Type } from "@sinclair/typebox";
+import { AsyncLocalStorage } from "node:async_hooks";
 import {
   ThreadType,
   Reactions,
@@ -19,7 +20,7 @@ import {
   AutoReplyScope,
   Urgency,
 } from "zca-js";
-import { getApi, getCurrentUid } from "../client/zalo-client.js";
+import { getApi as getAccountApi, getCurrentUid } from "../client/zalo-client.js";
 import { lookupCliMsgId } from "../features/msg-id-store.js";
 import {
   readOpenClawConfig,
@@ -46,6 +47,9 @@ import * as nodePath from "node:path";
 import * as nodeOs from "node:os";
 import * as nodeCrypto from "node:crypto";
 import { recallGroupHistory, listPassiveGroups } from "../features/passive-collector.js";
+
+const toolAccountContext = new AsyncLocalStorage<string>();
+const getApi = () => getAccountApi(toolAccountContext.getStore());
 
 // ─── Result helper ───────────────────────────────────────────────────────────
 
@@ -315,12 +319,13 @@ function stringEnum<T extends readonly string[]>(
   });
 }
 
-export const ZaloClawToolSchema = Type.Object(
+export const ZaloConnectToolSchema = Type.Object(
   {
     action: stringEnum(ACTIONS, {
       description: `Action to perform. ${ACTIONS.length} actions available: ${ACTIONS.join(", ")}`,
     }),
     // Core identifiers
+    accountId: Type.Optional(Type.String({ description: "Zalo Connect account ID (default if omitted)" })),
     threadId: Type.Optional(Type.String({ description: "Thread / chat ID" })),
     message: Type.Optional(Type.String({ description: "Text content. For send-styled, supports **bold**, *italic*, __underline__, ~~strike~~" })),
     isGroup: Type.Optional(Type.Boolean({ description: "Whether the thread is a group" })),
@@ -462,13 +467,13 @@ type Params = {
 
 // ─── Execute ─────────────────────────────────────────────────────────────────
 
-export async function executeZaloClawTool(
+export async function executeZaloConnectTool(
   _callId: string,
   p: Params,
   _signal?: AbortSignal,
 ): Promise<ToolResult> {
   try {
-    return await dispatch(p);
+    return await toolAccountContext.run(p.accountId || "default", () => dispatch(p));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return ok({ error: true, message: msg });
@@ -488,7 +493,7 @@ async function dispatch(p: Params): Promise<ToolResult> {
       let sendMsg = p.message;
       let sendMentions: any[] = [];
       if (p.isGroup) {
-        const resolved = await resolveOutboundMentions(p.threadId, p.message);
+        const resolved = await resolveOutboundMentions(p.threadId, p.message, p.accountId);
         sendMsg = resolved.text;
         sendMentions = resolved.mentions;
       }
@@ -518,7 +523,7 @@ async function dispatch(p: Params): Promise<ToolResult> {
       }
       let styledMentions: any[] = [];
       if (p.isGroup) {
-        const resolved = await resolveOutboundMentions(p.threadId, msg);
+        const resolved = await resolveOutboundMentions(p.threadId, msg, p.accountId);
         msg = resolved.text;
         styledMentions = resolved.mentions;
       }
@@ -702,7 +707,7 @@ async function dispatch(p: Params): Promise<ToolResult> {
         const stored = lookupCliMsgId(p.msgId);
         if (stored) cliMsgId = stored.cliMsgId;
       }
-      const uidFrom = getCurrentUid() ?? "";
+      const uidFrom = getCurrentUid(toolAccountContext.getStore()) ?? "";
       const res = await a.deleteMessage(
         { data: { msgId: p.msgId, cliMsgId: cliMsgId ?? p.msgId, uidFrom }, threadId: p.threadId, type },
         Boolean(p.onlyMe),
@@ -1357,7 +1362,7 @@ async function dispatch(p: Params): Promise<ToolResult> {
       const type = p.isGroup ? ThreadType.Group : ThreadType.User;
       // Note: cliMsgId/globalMsgId are empty — API may delete partially or fail silently.
       // Ideally fetch last message of thread first, but no API exists for that currently.
-      const res = await a.deleteChat({ ownerId: getCurrentUid() ?? "", cliMsgId: "", globalMsgId: "" }, p.threadId, type);
+      const res = await a.deleteChat({ ownerId: getCurrentUid(toolAccountContext.getStore()) ?? "", cliMsgId: "", globalMsgId: "" }, p.threadId, type);
       return ok({ success: true, result: res });
     }
 
@@ -1570,7 +1575,11 @@ async function dispatch(p: Params): Promise<ToolResult> {
 
     case "status": {
       const { isAuthenticated, hasStoredCredentials } = await import("../client/zalo-client.js");
-      return ok({ authenticated: isAuthenticated(), hasCredentials: hasStoredCredentials() });
+      return ok({
+        accountId: p.accountId || "default",
+        authenticated: isAuthenticated(p.accountId),
+        hasCredentials: hasStoredCredentials(p.accountId),
+      });
     }
 
     case "get-user-info": {
@@ -1595,7 +1604,7 @@ async function dispatch(p: Params): Promise<ToolResult> {
 
     case "get-qr": {
       const a = await api();
-      const uid = getCurrentUid();
+      const uid = getCurrentUid(toolAccountContext.getStore());
       if (!uid) throw new Error("Not logged in");
       const res = await a.getQR(uid);
       return ok({ qr: res });
@@ -1949,7 +1958,7 @@ async function dispatch(p: Params): Promise<ToolResult> {
 
     case "recall-group-history": {
       // Recall passively-stored group messages from local JSONL log
-      // Files: ~/.openclaw/workspace/zaloclaw/passive/{groupId}.jsonl
+      // Files: ~/.openclaw/workspace/zalo-connect/passive/{groupId}.jsonl
       const gid = p.groupId ?? p.threadId;
       if (!gid) throw new Error("groupId or threadId required");
       const records = recallGroupHistory({

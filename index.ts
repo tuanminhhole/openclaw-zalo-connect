@@ -1,26 +1,26 @@
 import type { AnyAgentTool, OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
-import { zaloClawPlugin } from "./src/channel/channel.js";
+import { zaloConnectPlugin } from "./src/channel/channel.js";
 import { exposeBridgeService } from "./src/runtime/bridge.js";
-import { setZaloClawRuntime } from "./src/runtime/runtime.js";
-import { ZaloClawToolSchema, executeZaloClawTool } from "./src/tools/tool.js";
+import { setZaloConnectRuntime } from "./src/runtime/runtime.js";
+import { ZaloConnectToolSchema, executeZaloConnectTool } from "./src/tools/tool.js";
 
 const plugin = {
-  id: "zaloclaw",
-  name: "ZaloClaw",
+  id: "zalo-connect",
+  name: "OpenClaw Zalo Connect",
   description: "Zalo personal account messaging via zca-js library",
   configSchema: emptyPluginConfigSchema(),
   register(api: OpenClawPluginApi) {
-    setZaloClawRuntime(api.runtime);
+    setZaloConnectRuntime(api.runtime);
     // Register channel plugin (for onboarding & gateway)
-    api.registerChannel({ plugin: zaloClawPlugin });
+    api.registerChannel({ plugin: zaloConnectPlugin });
 
     // Register agent tool
     api.registerTool({
-      name: "zaloclaw",
-      label: "ZaloClaw",
+      name: "zalo-connect",
+      label: "Zalo Connect",
       description:
-        "Complete Zalo personal account management via zca-js (147 actions). " +
+        "Complete Zalo personal account management via zca-js (149 actions). " +
         "Messaging: send, image, link, send-to-stranger, send-video, send-voice, send-sticker, send-card, send-bank-card, " +
         "delete-message, undo-message (recall), forward-message, add-reaction, send-typing. " +
         "Friend: find-user, send-friend-request, accept/reject-friend-request, get-sent/friend-requests, " +
@@ -46,8 +46,8 @@ const plugin = {
         "Block: block/unblock-user (OpenClaw), zalo-block/unblock-user (Zalo-level), block-view-feed. " +
         "Misc: search-stickers, parse-link, send-report, get-biz-account. " +
         "Names are auto-resolved to IDs.",
-      parameters: ZaloClawToolSchema,
-      execute: executeZaloClawTool,
+      parameters: ZaloConnectToolSchema,
+      execute: executeZaloConnectTool,
     } as AnyAgentTool);
 
     // Expose a stable bridge for sibling plugins (dashboards, moderation

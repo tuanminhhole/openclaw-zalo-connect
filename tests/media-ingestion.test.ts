@@ -5,7 +5,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import {
-  _convertToZaloClawMessage as convertToZaloClawMessage,
+  _convertToZaloConnectMessage as convertToZaloConnectMessage,
   _filterAttachableMediaPaths as filterAttachableMediaPaths,
   _isSystemNotificationContent as isSystemNotificationContent,
 } from "../src/channel/monitor.js";
@@ -35,7 +35,7 @@ function fakeUserMessageWithQuote(content: unknown, quote: Record<string, unknow
 }
 
 async function createImage(width: number, height: number): Promise<string> {
-  const filePath = path.join(os.tmpdir(), `zaloclaw-media-${width}x${height}-${Date.now()}-${Math.random()}.png`);
+  const filePath = path.join(os.tmpdir(), `zalo-connect-media-${width}x${height}-${Date.now()}-${Math.random()}.png`);
   await sharp({
     create: {
       width,
@@ -64,11 +64,11 @@ afterEach(() => {
 describe("Zalo media ingestion guard", () => {
   it("drops Zalo friend/system notification messages", () => {
     expect(isSystemNotificationContent("Bạn vừa kết bạn với Huy Nguyễn")).toBe(true);
-    expect(convertToZaloClawMessage(fakeUserMessage("Bạn vừa kết bạn với Huy Nguyễn"))).toBeNull();
+    expect(convertToZaloConnectMessage(fakeUserMessage("Bạn vừa kết bạn với Huy Nguyễn"))).toBeNull();
   });
 
   it("does not treat a lone thumb as customer-uploaded media", () => {
-    const converted = convertToZaloClawMessage(fakeUserMessage(JSON.stringify({
+    const converted = convertToZaloConnectMessage(fakeUserMessage(JSON.stringify({
       thumb: "https://res-zalo.zadn.vn/upload/media/avatar.jpg",
       description: "preview",
     })));
@@ -78,7 +78,7 @@ describe("Zalo media ingestion guard", () => {
   });
 
   it("keeps explicit full-size photo URLs", () => {
-    const converted = convertToZaloClawMessage(fakeUserMessage(JSON.stringify({
+    const converted = convertToZaloConnectMessage(fakeUserMessage(JSON.stringify({
       normalUrl: "https://photo-stal.zdn.vn/fullsize/photo.jpg",
       thumb: "https://photo-stal.zdn.vn/thumb/photo.jpg",
     })));
@@ -88,7 +88,7 @@ describe("Zalo media ingestion guard", () => {
   });
 
   it("does not attach generic link-preview hrefs as media", () => {
-    const converted = convertToZaloClawMessage(fakeUserMessage(JSON.stringify({
+    const converted = convertToZaloConnectMessage(fakeUserMessage(JSON.stringify({
       href: "https://example.com/some-page",
       title: "Example link",
       thumb: "https://example.com/preview.jpg",
@@ -99,7 +99,7 @@ describe("Zalo media ingestion guard", () => {
   });
 
   it("drops object payloads that contain no text and no media URL", () => {
-    const converted = convertToZaloClawMessage(fakeUserMessage({
+    const converted = convertToZaloConnectMessage(fakeUserMessage({
       thumb: "https://example.com/profile-or-preview.jpg",
       msgType: "link-preview",
     }));
@@ -108,7 +108,7 @@ describe("Zalo media ingestion guard", () => {
   });
 
   it("does not treat quoted image attachments as current customer uploads", () => {
-    const converted = convertToZaloClawMessage(fakeUserMessageWithQuote("check giúp em", {
+    const converted = convertToZaloConnectMessage(fakeUserMessageWithQuote("check giúp em", {
       attach: JSON.stringify({
         normalUrl: "https://photo-stal.zdn.vn/fullsize/old-photo.jpg",
         type: "photo",

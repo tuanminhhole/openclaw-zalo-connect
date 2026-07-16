@@ -4,6 +4,39 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 Định dạng dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+## [3.0.0] — 2026-07-17
+
+### Sửa lỗi sau phát hành
+- Đóng gói `dist` self-contained để cài trực tiếp từ Git không còn lỗi thiếu
+  `zca-js` hoặc phải chạy `npm install` thủ công.
+- Hoàn thiện multi-account thực: mỗi `accountId` có credential, API client,
+  listener, keepalive và outbound route riêng; tài khoản `default` và các tài
+  khoản đặt tên có thể chạy đồng thời trong cùng gateway.
+- Đồng bộ tài liệu cài đặt, số action thực tế, chính sách bảo mật và các liên kết
+  public; tài liệu kỹ thuật vận hành được tách khỏi repo công khai.
+
+### Breaking change
+- Đổi thương hiệu maintained fork thành **OpenClaw Zalo Connect**.
+- Đổi package thành `openclaw-zalo-connect`, plugin/channel/tool thành
+  `zalo-connect`.
+- Thêm bridge service v2 cho live group policy, passive context và native reply
+  mention chính xác theo UID.
+- Giữ giấy phép MIT và ghi công dự án gốc `monas-team/zaloclaw`.
+
+### Thêm mới
+- **Passive inbound bridge**: thêm `subscribeInbound` và phát tin group đã qua
+  access gate nhưng trước Silent mention gate. Plugin sibling có thể lưu context
+  zero-token; timestamp được chuẩn hoá sang millisecond. Với lượt chỉ tag bot,
+  prompt dùng tin liên quan gần nhất trong buffer thay vì phản hồi như phiên mới.
+- **Bridge service v2 — live group policy**: sibling plugins có thể gọi
+  `setGroupPolicy(accountId, groupId, 'free'|'silent'|'mute')`. Policy được giữ
+  trong RAM và đọc trực tiếp bởi inbound monitor: `silent` chặn tin không tag,
+  `mute` drop cả group trước dispatch/model. Không ghi `openclaw.json`, không
+  kích hoạt config-reload hay gateway restart. Caller chịu trách nhiệm persist
+  và replay policy sau restart.
+
 ## [2.4.5] — 2026-07-09
 
 ### Tài liệu
@@ -31,9 +64,9 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 ### Tài liệu (tái cấu trúc)
 - **Xóa**: `TOOLS.md`, `docs/FEATURES.md`, `docs/agent-help.md`, `docs/agent-install.md` — ~3500 dòng nội dung chồng chéo và lỗi thời
 - **Viết lại**: `README.md` — gọn ~180 dòng, cập nhật cho v2.4.x, link đến docs mới
-- **Thêm**: `docs/actions.md` — reference đầy đủ 151 actions theo nhóm, có params và ví dụ
+- **Thêm**: `docs/actions.md` — reference đầy đủ 149 actions theo nhóm, có params và ví dụ
 - **Sửa**: `CONTRIBUTING.md` — URL sai (`monasprox` → `monas-team`), rút gọn
-- **Sửa**: Số lượng action: 147 → 151 (bao gồm `recall-group-history`, `list-passive-groups` và các action mới)
+- **Sửa**: Số lượng action: 147 → 149 (bao gồm `recall-group-history` và `list-passive-groups`)
 
 ---
 

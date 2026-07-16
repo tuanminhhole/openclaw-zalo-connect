@@ -1,19 +1,19 @@
 {
-  "name": "zaloclaw",
-  "version": "2.4.6",
-  "description": "OpenClaw channel plugin for Zalo personal accounts via zca-js",
+  "name": "openclaw-zalo-connect",
+  "version": "3.0.0",
+  "description": "Connect OpenClaw to Zalo personal accounts via zca-js",
   "type": "module",
   "main": "dist/index.js",
   "license": "MIT",
-  "author": "monas-team",
+  "author": "tuanminhhole",
   "repository": {
     "type": "git",
-    "url": "https://github.com/monas-team/zaloclaw.git"
+    "url": "https://github.com/tuanminhhole/openclaw-zalo-connect.git"
   },
   "bugs": {
-    "url": "https://github.com/monas-team/zaloclaw/issues"
+    "url": "https://github.com/tuanminhhole/openclaw-zalo-connect/issues"
   },
-  "homepage": "https://github.com/monas-team/zaloclaw#readme",
+  "homepage": "https://github.com/tuanminhhole/openclaw-zalo-connect#readme",
   "keywords": [
     "openclaw-channel",
     "openclaw-plugin",
@@ -43,20 +43,29 @@
       "pluginSdkVersion": "2026.5.7"
     },
     "channel": {
-      "id": "zaloclaw",
-      "label": "ZaloClaw",
-      "selectionLabel": "ZaloClaw Account",
-      "blurb": "Zalo personal account messaging via zca-js. 147 actions for DMs, groups, friends, polls, and more.",
-      "docsPath": "/channels/zaloclaw",
-      "docsLabel": "zaloclaw",
+      "id": "zalo-connect",
+      "label": "OpenClaw Zalo Connect",
+      "selectionLabel": "Zalo Connect Account",
+      "blurb": "Zalo personal account messaging via zca-js. 149 actions for DMs, groups, friends, polls, and more.",
+      "docsPath": "/channels/zalo-connect",
+      "docsLabel": "zalo-connect",
       "aliases": [
         "oz"
       ],
       "order": 86
+    },
+    "install": {
+      "clawhubSpec": "tuanminhhole/openclaw-zalo-connect",
+      "defaultChoice": "clawhub",
+      "minHostVersion": ">=2026.5.7"
+    },
+    "release": {
+      "publishToClawHub": true,
+      "publishToNpm": false
     }
   },
   "scripts": {
-    "build": "esbuild index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:openclaw --external:sharp --packages=external",
+    "build": "esbuild index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:openclaw",
     "prepublishOnly": "npm run build && npm run typecheck",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -67,16 +76,17 @@
   },
   "dependencies": {
     "@sinclair/typebox": "^0.34.0",
+    "image-size": "^2.0.2",
     "jsqr": "^1.4.0",
     "pngjs": "^7.0.0",
     "qrcode-terminal": "^0.12.0",
-    "sharp": "^0.33.0",
     "zca-js": "^2.1.2",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
     "esbuild": "^0.28.0",
+    "sharp": "^0.33.0",
     "typescript": "^5.4.0",
     "vitest": "^4.1.4"
   },
