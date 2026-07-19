@@ -7,7 +7,7 @@
 *Mỗi tài khoản có session, API client, listener và tuyến phản hồi riêng — đăng nhập QR, chạy đồng thời, không cần Zalo OA.*
 
 <p align="center">
-  <a href="https://github.com/tuanminhhole/openclaw-zalo-connect/releases/tag/v3.0.0"><img src="https://img.shields.io/badge/RELEASE-v3.0.0-0EA5E9?style=for-the-badge" alt="Version 3.0.0" /></a>
+  <a href="https://github.com/tuanminhhole/openclaw-zalo-connect/releases/tag/v3.0.1"><img src="https://img.shields.io/badge/RELEASE-v3.0.1-0EA5E9?style=for-the-badge" alt="Version 3.0.1" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/LICENSE-MIT-success?style=for-the-badge" alt="MIT License" /></a>
   <a href="https://openclaw.ai"><img src="https://img.shields.io/badge/OpenClaw-%E2%89%A52026.5.7-7C3AED?style=for-the-badge" alt="OpenClaw 2026.5.7+" /></a>
   <a href="https://github.com/tuanminhhole/openclaw-zalo-connect/stargazers"><img src="https://img.shields.io/github/stars/tuanminhhole/openclaw-zalo-connect?style=for-the-badge&color=eab308&logo=github&logoColor=white" alt="GitHub Stars" /></a>
@@ -81,7 +81,7 @@ runtime được duy trì lâu dài cho hệ sinh thái OpenClaw**, tập trung 
 | Định vị sản phẩm | Plugin Zalo cá nhân tổng quát | Channel runtime cho hệ sinh thái OpenClaw đa agent |
 
 > Bảng trên mô tả khác biệt tại thời điểm dự án được fork và phát triển thành
-> v3.0.0. Dự án gốc có thể tiếp tục thay đổi độc lập.
+> v3.0.1. Dự án gốc có thể tiếp tục thay đổi độc lập.
 
 ---
 
@@ -104,7 +104,7 @@ Nếu plugin đã có, Setup sẽ dùng lại thay vì tải lại mỗi lần l
 Yêu cầu máy đã có [Git](https://git-scm.com/downloads), Node.js 22+ và OpenClaw:
 
 ```bash
-git clone --depth 1 --branch v3.0.0 \
+git clone --depth 1 --branch v3.0.1 \
   https://github.com/tuanminhhole/openclaw-zalo-connect.git
 
 openclaw plugins install ./openclaw-zalo-connect
@@ -272,7 +272,7 @@ Hướng dẫn chi tiết: **[docs/guide.md](docs/guide.md)**
 
 ---
 
-## 🔌 Bridge service v2
+## 🔌 Bridge service v3
 
 Zalo Connect expose một contract nhỏ cho plugin cùng process:
 
@@ -285,6 +285,10 @@ getGroupPolicy(accountId, groupId)
 clearGroupPolicy(accountId, groupId)
 subscribeInbound(handler)
 ```
+
+Handler inbound có thể trả `true` hoặc `{ handled: true }` để xác nhận đã xử lý
+tin nhắn trước mention gate. Nhờ đó slash command chạy tức thì, không gọi model và
+không phát sinh câu trả lời trùng từ agent.
 
 Bridge giúp [OpenClaw Zalo Mod](https://github.com/tuanminhhole/openclaw-zalo-mod)
 thực hiện moderation và đổi Free/Silent/Mute tức thời mà không import file bundle,
@@ -301,7 +305,7 @@ Zalo account: mkt ─────┘        │
                                 ├─ access policy + mention gate
                                 ├─ thread queue + dedup + timeout
                                 ├─ passive collector
-                                ├─ bridge service v2
+                                ├─ bridge service v3
                                 └─ 149 actions + outbound sender
 ```
 
@@ -326,7 +330,7 @@ npm test
 npm run build
 ```
 
-Bản `v3.0.0` hiện có **114 automated tests** cho parsing, send, bridge, media,
+Bản `v3.0.1` hiện có **115 automated tests** cho parsing, send, bridge, media,
 credential và các thành phần an toàn. Multi-account cũng đã được kiểm tra thực
 tế với hai Zalo cá nhân chạy đồng thời và tự kết nối lại sau gateway restart.
 

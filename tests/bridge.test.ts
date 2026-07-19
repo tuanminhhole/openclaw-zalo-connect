@@ -41,7 +41,7 @@ describe("plugin bridge service", () => {
   it("exposes the service on the documented global handshake", () => {
     const service = exposeBridgeService();
     expect((globalThis as Record<string, unknown>).__zaloConnectBridgeService).toBe(service);
-    expect(service.version).toBe(2);
+    expect(service.version).toBe(3);
     delete (globalThis as Record<string, unknown>).__zaloConnectBridgeService;
   });
 
@@ -81,12 +81,24 @@ describe("plugin bridge service", () => {
       messageId: "m1", senderId: "u1", senderName: "An", text: "mấy giờ rồi",
       timestamp: Date.now(),
     };
-    publishBridgeInbound(event);
-    await Promise.resolve();
+    expect(await publishBridgeInbound(event)).toBe(false);
     expect(seen).toEqual(["m1"]);
     unsubscribe();
-    publishBridgeInbound({ ...event, messageId: "m2" });
-    await Promise.resolve();
+    expect(await publishBridgeInbound({ ...event, messageId: "m2" })).toBe(false);
     expect(seen).toEqual(["m1"]);
+  });
+
+  it("lets a sibling plugin claim a command before mention/agent dispatch", async () => {
+    const bridge = createBridgeService();
+    const unsubscribe = bridge.subscribeInbound((event) => (
+      event.text.startsWith("/bot-") ? { handled: true } : undefined
+    ));
+    const base = {
+      accountId: "acc1", conversationId: "group:g1", groupId: "g1", isGroup: true,
+      messageId: "m-command", senderId: "u1", senderName: "An", timestamp: Date.now(),
+    };
+    expect(await publishBridgeInbound({ ...base, text: "/bot-menu" })).toBe(true);
+    expect(await publishBridgeInbound({ ...base, messageId: "m-chat", text: "alo" })).toBe(false);
+    unsubscribe();
   });
 });

@@ -781,7 +781,7 @@ async function processMessage(
   // mention gate drops silent traffic. Zalo timestamps are seconds; bridge
   // consumers use JavaScript milliseconds.
   if (isGroup) {
-    publishBridgeInbound({
+    const bridgeHandled = await publishBridgeInbound({
       accountId: account.accountId,
       conversationId: `group:${chatId}`,
       groupId: chatId,
@@ -798,6 +798,10 @@ async function processMessage(
         text: message.quote.msg,
       } : undefined,
     });
+    if (bridgeHandled) {
+      logVerbose(core, runtime, `Handled group ${chatId} by sibling bridge before mention/agent dispatch`);
+      return;
+    }
   }
 
   if (

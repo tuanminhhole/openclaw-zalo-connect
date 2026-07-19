@@ -36,28 +36,36 @@ export type ZaloConnectBridgeInboundEvent = {
   quote?: { messageId?: string; senderId?: string; text?: string };
 };
 
-type InboundHandler = (event: ZaloConnectBridgeInboundEvent) => void | Promise<void>;
+export type ZaloConnectBridgeInboundOutcome = void | boolean | { handled?: boolean };
+type InboundHandler = (
+  event: ZaloConnectBridgeInboundEvent,
+) => ZaloConnectBridgeInboundOutcome | Promise<ZaloConnectBridgeInboundOutcome>;
 const inboundHandlers = new Set<InboundHandler>();
 
 /**
  * Publish an allowed inbound message to sibling plugins before mention gating.
- * Handlers are isolated and never delay or break the channel pipeline.
+ * Handlers are isolated. Returning `true` or `{ handled: true }` claims the
+ * message before mention gating/agent dispatch (used by zero-token slash
+ * command plugins). Passive subscribers simply return nothing.
  */
-export function publishBridgeInbound(event: ZaloConnectBridgeInboundEvent): void {
+export async function publishBridgeInbound(event: ZaloConnectBridgeInboundEvent): Promise<boolean> {
+  let handled = false;
   for (const handler of inboundHandlers) {
     try {
-      void Promise.resolve(handler(event)).catch((err) => {
-        console.warn(`[zalo-connect] bridge inbound subscriber failed: ${String(err)}`);
-      });
+      const outcome = await handler(event);
+      if (outcome === true || (outcome && typeof outcome === "object" && outcome.handled === true)) {
+        handled = true;
+      }
     } catch (err) {
       console.warn(`[zalo-connect] bridge inbound subscriber failed: ${String(err)}`);
     }
   }
+  return handled;
 }
 
 export type ZaloConnectBridgeService = {
-  /** Version 2 adds live group-policy overrides (additive to v1). */
-  version: 2;
+  /** Version 3 adds pre-dispatch inbound claiming (additive to v2). */
+  version: 3;
   getStatus(accountId?: string): Promise<{
     connected: boolean;
     accountId?: string;
@@ -86,7 +94,7 @@ let seq = 0;
 
 export function createBridgeService(): ZaloConnectBridgeService {
   return {
-    version: 2,
+    version: 3,
 
     async getStatus(accountId) {
       return {

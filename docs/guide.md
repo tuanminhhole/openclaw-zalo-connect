@@ -66,7 +66,7 @@ những lần đăng nhập sau.
 Máy cần có Git, Node.js 22+ và OpenClaw:
 
 ```bash
-git clone --depth 1 --branch v3.0.0 \
+git clone --depth 1 --branch v3.0.1 \
   https://github.com/tuanminhhole/openclaw-zalo-connect.git
 openclaw plugins install ./openclaw-zalo-connect
 openclaw gateway restart

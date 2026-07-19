@@ -61914,20 +61914,23 @@ var init_tool = __esm({
 });
 
 // src/runtime/bridge.ts
-function publishBridgeInbound(event) {
+async function publishBridgeInbound(event) {
+  let handled = false;
   for (const handler of inboundHandlers) {
     try {
-      void Promise.resolve(handler(event)).catch((err2) => {
-        console.warn(`[zalo-connect] bridge inbound subscriber failed: ${String(err2)}`);
-      });
+      const outcome = await handler(event);
+      if (outcome === true || outcome && typeof outcome === "object" && outcome.handled === true) {
+        handled = true;
+      }
     } catch (err2) {
       console.warn(`[zalo-connect] bridge inbound subscriber failed: ${String(err2)}`);
     }
   }
+  return handled;
 }
 function createBridgeService() {
   return {
-    version: 2,
+    version: 3,
     async getStatus(accountId) {
       return {
         connected: isAuthenticated(accountId),
@@ -62537,7 +62540,7 @@ ${effectiveContent}`;
     }
   }
   if (isGroup) {
-    publishBridgeInbound({
+    const bridgeHandled = await publishBridgeInbound({
       accountId: account.accountId,
       conversationId: `group:${chatId}`,
       groupId: chatId,
@@ -62554,6 +62557,10 @@ ${effectiveContent}`;
         text: message.quote.msg
       } : void 0
     });
+    if (bridgeHandled) {
+      logVerbose(core, runtime2, `Handled group ${chatId} by sibling bridge before mention/agent dispatch`);
+      return;
+    }
   }
   if (isGroup && core.channel.commands.isControlCommandMessage(rawBody, config2) && commandAuthorized !== true) {
     logVerbose(core, runtime2, `Drop control command from unauthorized sender ${senderId}`);
