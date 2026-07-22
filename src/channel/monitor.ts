@@ -33,6 +33,7 @@ import { handleGroupEvent } from "../features/group-event.js";
 import { collectGroupMessage } from "../features/passive-collector.js";
 import { checkInjection } from "../features/injection-guard.js";
 import { recordMsgId, lookupCliMsgId } from "../features/msg-id-store.js";
+import { trackOutboundMessage } from "../features/auto-unsend.js";
 import { recordGroupId } from "../features/group-id-cache.js";
 import { refreshCredentials } from "../client/credentials.js";
 import { ThreadMessageQueue, type ThreadQueueEntry } from "./thread-queue.js";
@@ -1577,8 +1578,22 @@ export async function monitorZaloConnectProvider(
       });
 
       api.listener.on("message", (msg: Message) => {
-        if (msg.isSelf) return;
-        if (selfUid && msg.data.uidFrom === selfUid) return;
+        // Self-sent messages (via selfListen): the send API never returns cliMsgId, so this echo is
+        // the ONLY place we learn our own message's real cliMsgId. Record msgId→cliMsgId + track it
+        // so the agent can recall its own message with undo-message. Then skip normal processing.
+        if (msg.isSelf || (selfUid && msg.data?.uidFrom === selfUid)) {
+          try {
+            const sMsgId = msg.data?.msgId != null ? String(msg.data.msgId) : "";
+            const sCliMsgId = msg.data?.cliMsgId != null ? String(msg.data.cliMsgId) : "";
+            const sThreadId = msg.threadId ? String(msg.threadId) : "";
+            if (sMsgId && sCliMsgId && sThreadId) {
+              const sIsGroup = msg.type === ThreadType.Group;
+              recordMsgId(sMsgId, sCliMsgId, sThreadId, sIsGroup);
+              trackOutboundMessage(sThreadId, sMsgId, sCliMsgId);
+            }
+          } catch { /* best-effort */ }
+          return;
+        }
         // Dedup by msgId to prevent duplicate processing of delivery-mirror events
         if (isDuplicateMsg(msg.data.msgId)) {
           logVerbose(core, runtime, `[${account.accountId}] skipping duplicate msgId ${msg.data.msgId}`);
@@ -1634,6 +1649,7 @@ export async function monitorZaloConnectProvider(
 
       api.listener.on("friend_event", (event: FriendEvent) => {
         try {
+          if (event.isSelf) return; // selfListen is on for recall — ignore our own friend events
           if (event.type === FriendEventType.REQUEST && !event.isSelf) {
             const data = event.data as { fromUid: string; message: string; src?: number };
             addPendingRequest(data.fromUid, data.message, data.src);
@@ -1651,6 +1667,7 @@ export async function monitorZaloConnectProvider(
 
       // Group events: join, leave, kick, admin changes
       api.listener.on("group_event", (event: any) => {
+        if (event?.isSelf) return; // selfListen is on for recall — ignore our own group events
         handleGroupEvent(event, {
           api,
           config: (account.config as any)?.groupEvents,

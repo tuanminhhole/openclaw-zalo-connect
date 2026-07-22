@@ -739,29 +739,26 @@ async function dispatch(p: Params): Promise<ToolResult> {
 
     case "undo-message": {
       let undoMsgId = p.msgId as string | undefined;
-      let undoCliMsgId = p.cliMsgId as string | undefined;
       let undoThreadId = p.threadId != null ? String(p.threadId) : undefined;
       let undoIsGroup = p.isGroup as boolean | undefined;
+      let lastCli: string | undefined;
       // Fallback: with no explicit msgId, recall the bot's OWN last message in
-      // this thread (tracked on send, 5-minute TTL). Lets the agent honour
-      // "thu hồi tin trước đó" with just the current threadId.
+      // this thread (tracked on send / self-echo, 5-minute TTL).
       if (!undoMsgId) {
         if (!undoThreadId) throw new Error("Provide msgId, or threadId to recall the last message I sent there");
         const last = getLastOutbound(undoThreadId);
         if (!last) throw new Error("No recent message from me to recall in this thread (only messages I sent in the last 5 minutes can be undone)");
         undoMsgId = last.msgId;
-        undoCliMsgId = undoCliMsgId ?? last.cliMsgId ?? last.msgId;
+        lastCli = last.cliMsgId;
       }
-      // Backfill cliMsgId / threadId / isGroup from the msg-id store when not supplied.
-      if (!undoCliMsgId || !undoThreadId || undoIsGroup === undefined) {
-        const stored = lookupCliMsgId(undoMsgId);
-        if (stored) {
-          undoCliMsgId = undoCliMsgId ?? stored.cliMsgId;
-          undoThreadId = undoThreadId ?? stored.threadId;
-          if (undoIsGroup === undefined) undoIsGroup = stored.isGroup;
-        }
-      }
-      if (!undoCliMsgId) throw new Error("cliMsgId not found — message may be too old");
+      // Resolve the REAL cliMsgId: explicit arg → msg-id store (populated by the self-echo listener,
+      // since the send API never returns cliMsgId) → tracked entry. NEVER fall back to msgId — a
+      // wrong cliMsgId makes Zalo reject the undo ("Tham số không hợp lệ" / unknown error).
+      const stored = lookupCliMsgId(undoMsgId);
+      const undoCliMsgId = (p.cliMsgId as string | undefined) ?? stored?.cliMsgId ?? lastCli;
+      undoThreadId = undoThreadId ?? stored?.threadId;
+      if (undoIsGroup === undefined) undoIsGroup = stored?.isGroup;
+      if (!undoCliMsgId) throw new Error("cliMsgId not found — I can only recall my own messages sent in the last ~5 minutes");
       if (!undoThreadId) throw new Error("threadId required to recall (which chat to undo in)");
       // undo() needs the thread + ThreadType; the default (User) made Zalo reject group recalls
       // with "Tham số không hợp lệ". Resolve group-ness from the arg, msg store, or the group cache.
