@@ -41206,7 +41206,7 @@ async function imageMetadataGetter(filePath) {
 }
 async function loginWithQR(callback, accountId) {
   const id = normalizeAccountId2(accountId);
-  const zalo = new Zalo({ logging: false, imageMetadataGetter });
+  const zalo = new Zalo({ logging: false, selfListen: true, imageMetadataGetter });
   const api = await zalo.loginQR(void 0, (event) => {
     if (event.type === LoginQRCallbackEventType.GotLoginInfo && event.data) {
       saveCredentials({
@@ -41232,7 +41232,7 @@ async function loginWithCredentials(accountId) {
   if (!creds) {
     throw new Error("No saved credentials found. Login with QR first.");
   }
-  const zalo = new Zalo({ logging: false, imageMetadataGetter });
+  const zalo = new Zalo({ logging: false, selfListen: true, imageMetadataGetter });
   const api = await zalo.login({
     imei: creds.imei,
     cookie: creds.cookie,
@@ -60521,22 +60521,25 @@ async function dispatch(p) {
     }
     case "undo-message": {
       let undoMsgId = p.msgId;
-      let undoCliMsgId = p.cliMsgId;
+      let undoThreadId = p.threadId != null ? String(p.threadId) : void 0;
+      let undoIsGroup = p.isGroup;
+      let lastCli;
       if (!undoMsgId) {
-        const threadId = p.threadId != null ? String(p.threadId) : void 0;
-        if (!threadId) throw new Error("Provide msgId, or threadId to recall the last message I sent there");
-        const last = getLastOutbound(threadId);
+        if (!undoThreadId) throw new Error("Provide msgId, or threadId to recall the last message I sent there");
+        const last = getLastOutbound(undoThreadId);
         if (!last) throw new Error("No recent message from me to recall in this thread (only messages I sent in the last 5 minutes can be undone)");
         undoMsgId = last.msgId;
-        undoCliMsgId = undoCliMsgId ?? last.cliMsgId ?? last.msgId;
+        lastCli = last.cliMsgId;
       }
-      if (!undoCliMsgId) {
-        const stored = lookupCliMsgId(undoMsgId);
-        if (stored) undoCliMsgId = stored.cliMsgId;
-      }
-      if (!undoCliMsgId) throw new Error("cliMsgId not found \u2014 message may be too old");
+      const stored = lookupCliMsgId(undoMsgId);
+      const undoCliMsgId = p.cliMsgId ?? stored?.cliMsgId ?? lastCli;
+      undoThreadId = undoThreadId ?? stored?.threadId;
+      if (undoIsGroup === void 0) undoIsGroup = stored?.isGroup;
+      if (!undoCliMsgId) throw new Error("cliMsgId not found \u2014 I can only recall my own messages sent in the last ~5 minutes");
+      if (!undoThreadId) throw new Error("threadId required to recall (which chat to undo in)");
+      const undoType = undoIsGroup ?? isKnownGroupId(undoThreadId) ? ThreadType.Group : ThreadType.User;
       const a = await api();
-      const res = await a.undo({ msgId: undoMsgId, cliMsgId: undoCliMsgId });
+      const res = await a.undo({ msgId: undoMsgId, cliMsgId: undoCliMsgId }, undoThreadId, undoType);
       return ok({ success: true, result: res });
     }
     // ── Reactions ──────────────────────────────────────────────────────────
@@ -61662,6 +61665,7 @@ var init_tool = __esm({
     init_zalo_client();
     init_msg_id_store();
     init_auto_unsend();
+    init_group_id_cache();
     init_config_manager();
     init_friend_request_store();
     init_thread_sandbox();
@@ -63313,8 +63317,20 @@ async function monitorZaloConnectProvider(options) {
         }
       });
       api.listener.on("message", (msg) => {
-        if (msg.isSelf) return;
-        if (selfUid && msg.data.uidFrom === selfUid) return;
+        if (msg.isSelf || selfUid && msg.data?.uidFrom === selfUid) {
+          try {
+            const sMsgId = msg.data?.msgId != null ? String(msg.data.msgId) : "";
+            const sCliMsgId = msg.data?.cliMsgId != null ? String(msg.data.cliMsgId) : "";
+            const sThreadId = msg.threadId ? String(msg.threadId) : "";
+            if (sMsgId && sCliMsgId && sThreadId) {
+              const sIsGroup = msg.type === ThreadType.Group;
+              recordMsgId(sMsgId, sCliMsgId, sThreadId, sIsGroup);
+              trackOutboundMessage(sThreadId, sMsgId, sCliMsgId);
+            }
+          } catch {
+          }
+          return;
+        }
         if (isDuplicateMsg(msg.data.msgId)) {
           logVerbose(core, runtime2, `[${account.accountId}] skipping duplicate msgId ${msg.data.msgId}`);
           return;
@@ -63357,6 +63373,7 @@ async function monitorZaloConnectProvider(options) {
       });
       api.listener.on("friend_event", (event) => {
         try {
+          if (event.isSelf) return;
           if (event.type === FriendEventType.REQUEST && !event.isSelf) {
             const data = event.data;
             addPendingRequest(data.fromUid, data.message, data.src);
@@ -63372,6 +63389,7 @@ async function monitorZaloConnectProvider(options) {
         }
       });
       api.listener.on("group_event", (event) => {
+        if (event?.isSelf) return;
         handleGroupEvent(event, {
           api,
           config: account.config?.groupEvents,
@@ -63476,6 +63494,7 @@ var init_monitor = __esm({
     init_passive_collector();
     init_injection_guard();
     init_msg_id_store();
+    init_auto_unsend();
     init_group_id_cache();
     init_credentials();
     init_thread_queue();

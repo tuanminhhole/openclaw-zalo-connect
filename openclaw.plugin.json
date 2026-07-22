@@ -3,7 +3,7 @@
   "name": "OpenClaw Zalo Connect",
   "description": "Zalo personal account messaging for OpenClaw via zca-js. Connect your personal Zalo account as a fully-featured AI agent channel with 149 actions.",
   "icon": "https://cdn.simpleicons.org/zalo",
-  "version": "3.0.2",
+  "version": "3.0.3",
   "author": "tuanminhhole",
   "license": "MIT",
   "homepage": "https://github.com/tuanminhhole/openclaw-zalo-connect",
