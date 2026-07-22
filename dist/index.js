@@ -60210,6 +60210,16 @@ import * as nodeFs from "node:fs";
 import * as nodePath from "node:path";
 import * as nodeOs from "node:os";
 import * as nodeCrypto from "node:crypto";
+function trackToolSend(threadId, res) {
+  try {
+    const t = threadId != null ? String(threadId).trim() : "";
+    const msgId = res?.message?.msgId ?? res?.msgId;
+    if (!t || msgId == null) return;
+    const cliMsgId = res?.message?.cliMsgId ?? res?.cliMsgId;
+    trackOutboundMessage(t, String(msgId), cliMsgId != null ? String(cliMsgId) : void 0);
+  } catch {
+  }
+}
 function ok(data) {
   return {
     content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
@@ -60305,6 +60315,7 @@ async function dispatch(p) {
       if (p.urgency !== void 0) content.urgency = p.urgency;
       if (p.messageTtl !== void 0) content.ttl = p.messageTtl;
       const res = await a.sendMessage(content, p.threadId, type);
+      trackToolSend(p.threadId, res);
       const msgId = res?.message?.msgId;
       if (!msgId) {
         return ok({ success: false, error: "send failed: no msgId returned (likely rate-limited or silently dropped)", raw: res, mentionsResolved: sendMentions.length });
@@ -60335,6 +60346,7 @@ async function dispatch(p) {
       if (p.urgency !== void 0) content.urgency = p.urgency;
       if (p.messageTtl !== void 0) content.ttl = p.messageTtl;
       const res = await a.sendMessage(content, p.threadId, type);
+      trackToolSend(p.threadId, res);
       const styledMsgId = res?.message?.msgId;
       if (!styledMsgId) {
         return ok({ success: false, error: "send-styled failed: no msgId returned (likely rate-limited or silently dropped)", raw: res, stylesApplied: styles?.length ?? 0, mentionsResolved: styledMentions.length });
@@ -60346,6 +60358,7 @@ async function dispatch(p) {
       const a = await api();
       const type = p.isGroup ? ThreadType.Group : ThreadType.User;
       const res = await a.sendLink({ link: p.url }, p.threadId, type);
+      trackToolSend(p.threadId, res);
       const linkMsgId = res?.msgId;
       if (!linkMsgId) {
         return ok({ success: false, error: "send-link failed: no msgId returned (likely rate-limited or silently dropped)", raw: res });
@@ -60368,6 +60381,7 @@ async function dispatch(p) {
             p.threadId,
             type
           );
+          trackToolSend(p.threadId, res2);
           return ok({ success: true, msgId: res2?.message?.msgId });
         } finally {
           try {
@@ -60383,6 +60397,7 @@ async function dispatch(p) {
         p.threadId,
         type
       );
+      trackToolSend(p.threadId, res);
       return ok({ success: true, msgId: res?.message?.msgId });
     }
     case "send-file": {
@@ -60410,6 +60425,7 @@ async function dispatch(p) {
         p.threadId,
         type
       );
+      trackToolSend(p.threadId, res);
       if (/^https?:\/\//i.test(localFile) && resolvedPath !== localFile) {
         try {
           nodeFs.unlinkSync(resolvedPath);
