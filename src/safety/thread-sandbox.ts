@@ -9,7 +9,12 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 
-const WORKSPACE_BASE = path.join(os.homedir(), ".openclaw", "workspace", "threads");
+// The container sets HOME to the .openclaw dir itself, so os.homedir() already
+// ends in .openclaw — prefer OPENCLAW_HOME to avoid doubling the segment (which
+// would put these paths outside the real workspace/media dirs). Falls back to
+// ~/.openclaw for CLI/dev where OPENCLAW_HOME is unset.
+const OPENCLAW_HOME = process.env.OPENCLAW_HOME || path.join(os.homedir(), ".openclaw");
+const WORKSPACE_BASE = path.join(OPENCLAW_HOME, "workspace", "threads");
 
 /**
  * Sanitize a thread ID for use as a directory name.
@@ -94,8 +99,8 @@ export function validateLocalFilePath(filePath: string): string {
 
   const tmpDir = os.tmpdir();
   const allowedBases = [
-    path.join(os.homedir(), ".openclaw", "workspace"),
-    path.join(os.homedir(), ".openclaw", "media"),
+    path.join(OPENCLAW_HOME, "workspace"),
+    path.join(OPENCLAW_HOME, "media"),
     tmpDir,
     // Resolve /tmp symlinks (e.g., macOS /tmp → /private/tmp)
     ...(fs.existsSync(tmpDir) ? [fs.realpathSync(tmpDir)] : []),

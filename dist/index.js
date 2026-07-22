@@ -55089,7 +55089,8 @@ function detectImageType(buffer) {
 }
 async function downloadImageFromUrl(url2, workspaceDir) {
   try {
-    const targetDir = workspaceDir || path3.join(os2.homedir(), ".openclaw/media/inbound");
+    const openclawHome = process.env.OPENCLAW_HOME || path3.join(os2.homedir(), ".openclaw");
+    const targetDir = workspaceDir || path3.join(openclawHome, "media", "inbound");
     if (!fs10.existsSync(targetDir)) {
       fs10.mkdirSync(targetDir, { recursive: true });
     }
@@ -55181,7 +55182,8 @@ import * as crypto5 from "crypto";
 import * as os3 from "os";
 async function downloadFileFromUrl(url2, workspaceDir) {
   try {
-    const targetDir = workspaceDir || path4.join(os3.homedir(), ".openclaw/media/inbound");
+    const openclawHome = process.env.OPENCLAW_HOME || path4.join(os3.homedir(), ".openclaw");
+    const targetDir = workspaceDir || path4.join(openclawHome, "media", "inbound");
     if (!fs11.existsSync(targetDir)) {
       fs11.mkdirSync(targetDir, { recursive: true });
     }
@@ -60171,8 +60173,8 @@ function validateLocalFilePath(filePath) {
   }
   const tmpDir = os5.tmpdir();
   const allowedBases = [
-    path6.join(os5.homedir(), ".openclaw", "workspace"),
-    path6.join(os5.homedir(), ".openclaw", "media"),
+    path6.join(OPENCLAW_HOME, "workspace"),
+    path6.join(OPENCLAW_HOME, "media"),
     tmpDir,
     // Resolve /tmp symlinks (e.g., macOS /tmp → /private/tmp)
     ...fs13.existsSync(tmpDir) ? [fs13.realpathSync(tmpDir)] : []
@@ -60196,11 +60198,12 @@ function validateLocalFilePath(filePath) {
   }
   return resolved;
 }
-var WORKSPACE_BASE;
+var OPENCLAW_HOME, WORKSPACE_BASE;
 var init_thread_sandbox = __esm({
   "src/safety/thread-sandbox.ts"() {
     "use strict";
-    WORKSPACE_BASE = path6.join(os5.homedir(), ".openclaw", "workspace", "threads");
+    OPENCLAW_HOME = process.env.OPENCLAW_HOME || path6.join(os5.homedir(), ".openclaw");
+    WORKSPACE_BASE = path6.join(OPENCLAW_HOME, "workspace", "threads");
   }
 });
 

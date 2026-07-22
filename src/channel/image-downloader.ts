@@ -62,7 +62,12 @@ export async function downloadImageFromUrl(
   workspaceDir?: string,
 ): Promise<string | undefined> {
   try {
-    const targetDir = workspaceDir || path.join(os.homedir(), ".openclaw/media/inbound");
+    // Resolve the OpenClaw home from OPENCLAW_HOME (the container sets HOME to the
+    // .openclaw dir itself, so os.homedir() already ends in .openclaw — joining
+    // ".openclaw/media" onto it would double the segment and land outside the
+    // media dir the core `image` tool allows). Fall back to ~/.openclaw for CLI/dev.
+    const openclawHome = process.env.OPENCLAW_HOME || path.join(os.homedir(), ".openclaw");
+    const targetDir = workspaceDir || path.join(openclawHome, "media", "inbound");
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true });
     }

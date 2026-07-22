@@ -6,6 +6,17 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 ## [Unreleased]
 
+## [3.0.7] — 2026-07-22
+
+### Sửa lỗi
+- **Đọc ảnh inbound trong Docker:** thư mục tải media inbound giờ resolve từ
+  `OPENCLAW_HOME` (fallback `~/.openclaw`) thay vì `os.homedir()+".openclaw"`.
+  Trong container OpenClaw đặt `HOME` = chính thư mục `.openclaw`, nên cách cũ tạo
+  path lặp `…/.openclaw/.openclaw/media/inbound` — nằm NGOÀI thư mục media mà tool
+  `image` của core cho phép → agent báo "không xem được ảnh". Nay tải về đúng
+  `<OPENCLAW_HOME>/media/inbound`. Áp dụng cho `image-downloader`, `file-downloader`
+  và `thread-sandbox` (workspace/media allowlist) để đồng bộ.
+
 ## [3.0.6] — 2026-07-22
 
 ### Sửa lỗi

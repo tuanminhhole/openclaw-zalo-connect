@@ -26,7 +26,10 @@ export async function downloadFileFromUrl(
   workspaceDir?: string,
 ): Promise<string | undefined> {
   try {
-    const targetDir = workspaceDir || path.join(os.homedir(), ".openclaw/media/inbound");
+    // See image-downloader: use OPENCLAW_HOME so the container's HOME=.openclaw
+    // doesn't double the ".openclaw" segment and escape the allowed media dir.
+    const openclawHome = process.env.OPENCLAW_HOME || path.join(os.homedir(), ".openclaw");
+    const targetDir = workspaceDir || path.join(openclawHome, "media", "inbound");
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true });
     }
