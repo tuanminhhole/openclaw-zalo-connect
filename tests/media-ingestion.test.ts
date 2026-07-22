@@ -107,17 +107,22 @@ describe("Zalo media ingestion guard", () => {
     expect(converted).toBeNull();
   });
 
-  it("does not treat quoted image attachments as current customer uploads", () => {
+  it("carries quote.attach through but does not auto-merge it into mediaUrls at convert time", () => {
+    // Extraction of quoted media is gated in processMessage (only when the user
+    // explicitly replies to the photo AND the bot is addressed), so convert must
+    // preserve quote.attach yet leave mediaUrls untouched here.
+    const attach = JSON.stringify({
+      normalUrl: "https://photo-stal.zdn.vn/fullsize/old-photo.jpg",
+      type: "photo",
+    });
     const converted = convertToZaloConnectMessage(fakeUserMessageWithQuote("check giúp em", {
-      attach: JSON.stringify({
-        normalUrl: "https://photo-stal.zdn.vn/fullsize/old-photo.jpg",
-        type: "photo",
-      }),
+      attach,
       msg: "old image",
     }));
 
     expect(converted?.content).toBe("check giúp em");
     expect(converted?.mediaUrls).toBeUndefined();
+    expect(converted?.quote?.attach).toBe(attach);
   });
 
   it("filters tiny avatars and banner-like images before model context", async () => {

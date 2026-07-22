@@ -86,6 +86,8 @@ export type ZaloConnectMessage = {
     fromName?: string;
     msgId?: string;
     ts?: number;
+    /** Raw JSON of the quoted message's attachment (photo/file), when present. */
+    attach?: string;
   };
   metadata?: {
     isGroup: boolean;

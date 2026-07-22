@@ -54693,6 +54693,37 @@ var init_output_filter = __esm({
   }
 });
 
+// src/features/auto-unsend.ts
+function trackOutboundMessage(threadId, msgId, cliMsgId) {
+  if (!outboundMessages.has(threadId)) {
+    outboundMessages.set(threadId, []);
+  }
+  const list = outboundMessages.get(threadId);
+  list.push({ msgId, cliMsgId, ts: Date.now() });
+  const cutoff = Date.now() - TRACK_TTL_MS;
+  while (list.length > 0 && list[0].ts < cutoff) list.shift();
+  if (outboundMessages.size > TRACK_MAX_THREADS) {
+    const oldest = outboundMessages.keys().next().value;
+    if (oldest && oldest !== threadId) outboundMessages.delete(oldest);
+  }
+}
+function getLastOutbound(threadId) {
+  const list = outboundMessages.get(threadId);
+  if (!list || list.length === 0) return void 0;
+  const last = list[list.length - 1];
+  if (Date.now() - last.ts > TRACK_TTL_MS) return void 0;
+  return last;
+}
+var outboundMessages, TRACK_MAX_THREADS, TRACK_TTL_MS;
+var init_auto_unsend = __esm({
+  "src/features/auto-unsend.ts"() {
+    "use strict";
+    outboundMessages = /* @__PURE__ */ new Map();
+    TRACK_MAX_THREADS = 100;
+    TRACK_TTL_MS = 5 * 60 * 1e3;
+  }
+});
+
 // src/channel/send.ts
 var send_exports = {};
 __export(send_exports, {
@@ -54794,6 +54825,9 @@ async function sendMessageZaloConnect(threadId, text, options = {}) {
     if (options.quote) content.quote = options.quote;
     const result = await api.sendMessage(content, threadId.trim(), type);
     const msgId = result?.message?.msgId;
+    if (msgId != null) {
+      trackOutboundMessage(threadId.trim(), String(msgId), result?.message?.cliMsgId != null ? String(result.message.cliMsgId) : void 0);
+    }
     return { ok: true, messageId: msgId != null ? String(msgId) : void 0 };
   } catch (err2) {
     return { ok: false, error: err2 instanceof Error ? err2.message : String(err2) };
@@ -54811,6 +54845,9 @@ async function sendMediaZaloConnect(threadId, mediaUrl, options = {}) {
       type
     );
     const msgId = result?.msgId;
+    if (msgId != null) {
+      trackOutboundMessage(threadId.trim(), String(msgId), result?.cliMsgId != null ? String(result.cliMsgId) : void 0);
+    }
     return { ok: true, messageId: msgId != null ? String(msgId) : void 0 };
   } catch (err2) {
     return { ok: false, error: err2 instanceof Error ? err2.message : String(err2) };
@@ -54824,6 +54861,9 @@ async function sendLinkZaloConnect(threadId, url2, options = {}) {
     const type = options.isGroup ? ThreadType.Group : ThreadType.User;
     const result = await api.sendLink({ link: url2.trim() }, threadId.trim(), type);
     const msgId = result?.msgId;
+    if (msgId != null) {
+      trackOutboundMessage(threadId.trim(), String(msgId), result?.cliMsgId != null ? String(result.cliMsgId) : void 0);
+    }
     return { ok: true, messageId: msgId != null ? String(msgId) : void 0 };
   } catch (err2) {
     return { ok: false, error: err2 instanceof Error ? err2.message : String(err2) };
@@ -54848,6 +54888,9 @@ async function uploadAndSendLocalImage(threadId, localPath, options = {}) {
       }
     }
     const msgId = result?.message?.msgId;
+    if (msgId != null) {
+      trackOutboundMessage(threadId.trim(), String(msgId), result?.message?.cliMsgId != null ? String(result.message.cliMsgId) : void 0);
+    }
     return { ok: true, messageId: msgId != null ? String(msgId) : void 0 };
   } catch (err2) {
     return { ok: false, error: err2 instanceof Error ? err2.message : String(err2) };
@@ -54867,6 +54910,7 @@ var init_send = __esm({
     init_zalo_client();
     init_mention_parser();
     init_output_filter();
+    init_auto_unsend();
     ZALO_MAX_TEXT_LENGTH = 4e3;
     TRUNCATION_SUFFIX = "\n\n[...tin nh\u1EAFn qu\xE1 d\xE0i, \u0111\xE3 c\u1EAFt b\u1EDBt]";
   }
@@ -60460,15 +60504,23 @@ async function dispatch(p) {
       return ok({ success: true, result: res });
     }
     case "undo-message": {
-      if (!p.msgId) throw new Error("msgId required");
+      let undoMsgId = p.msgId;
       let undoCliMsgId = p.cliMsgId;
+      if (!undoMsgId) {
+        const threadId = p.threadId != null ? String(p.threadId) : void 0;
+        if (!threadId) throw new Error("Provide msgId, or threadId to recall the last message I sent there");
+        const last = getLastOutbound(threadId);
+        if (!last) throw new Error("No recent message from me to recall in this thread (only messages I sent in the last 5 minutes can be undone)");
+        undoMsgId = last.msgId;
+        undoCliMsgId = undoCliMsgId ?? last.cliMsgId ?? last.msgId;
+      }
       if (!undoCliMsgId) {
-        const stored = lookupCliMsgId(p.msgId);
+        const stored = lookupCliMsgId(undoMsgId);
         if (stored) undoCliMsgId = stored.cliMsgId;
       }
       if (!undoCliMsgId) throw new Error("cliMsgId not found \u2014 message may be too old");
       const a = await api();
-      const res = await a.undo({ msgId: p.msgId, cliMsgId: undoCliMsgId });
+      const res = await a.undo({ msgId: undoMsgId, cliMsgId: undoCliMsgId });
       return ok({ success: true, result: res });
     }
     // ── Reactions ──────────────────────────────────────────────────────────
@@ -61593,6 +61645,7 @@ var init_tool = __esm({
     init_dist();
     init_zalo_client();
     init_msg_id_store();
+    init_auto_unsend();
     init_config_manager();
     init_friend_request_store();
     init_thread_sandbox();
@@ -62357,7 +62410,8 @@ function convertToZaloConnectMessage(msg) {
       fromId: quote.ownerId || void 0,
       fromName: quote.fromD || void 0,
       msgId: quote.globalMsgId ? String(quote.globalMsgId) : void 0,
-      ts: quote.ts || void 0
+      ts: quote.ts || void 0,
+      attach: typeof quote.attach === "string" && quote.attach.trim() ? quote.attach.trim() : void 0
     } : void 0,
     metadata: {
       isGroup,
@@ -62485,9 +62539,29 @@ async function processMessage(message, account, config2, core, runtime2, statusS
   const dmPolicy2 = account.config.dmPolicy ?? "open";
   const configAllowFrom = (account.config.allowFrom ?? ["*"]).map((v) => String(v));
   let effectiveContent = content.trim();
-  if (message.quote?.msg) {
+  if (message.quote?.msg || message.quote?.attach) {
     const quoteSender = message.quote.fromName || message.quote.fromId || "unknown";
-    effectiveContent = `[Replying to ${quoteSender}: "${message.quote.msg}"]
+    let quotedMediaNote = "";
+    if (message.quote.attach) {
+      try {
+        const quotedUrls = [];
+        const quotedTypes = [];
+        extractMediaFromObject(JSON.parse(message.quote.attach), quotedUrls, quotedTypes);
+        if (quotedUrls.length > 0) {
+          message.mediaUrls = message.mediaUrls ?? [];
+          message.mediaTypes = message.mediaTypes ?? [];
+          for (let i = 0; i < quotedUrls.length; i++) {
+            if (message.mediaUrls.includes(quotedUrls[i])) continue;
+            message.mediaUrls.push(quotedUrls[i]);
+            message.mediaTypes.push(quotedTypes[i] ?? "image/jpeg");
+          }
+          quotedMediaNote = " [with media]";
+        }
+      } catch {
+      }
+    }
+    const quotedText = message.quote.msg ? `"${message.quote.msg}"` : "[media]";
+    effectiveContent = `[Replying to ${quoteSender}: ${quotedText}${quotedMediaNote}]
 ${effectiveContent}`;
   }
   const rawBody = effectiveContent;
@@ -79184,7 +79258,7 @@ var plugin = {
     api.registerTool({
       name: "zalo-connect",
       label: "Zalo Connect",
-      description: "Complete Zalo personal account management via zca-js (149 actions). Messaging: send, image, link, send-to-stranger, send-video, send-voice, send-sticker, send-card, send-bank-card, delete-message, undo-message (recall), forward-message, add-reaction, send-typing. Friend: find-user, send-friend-request, accept/reject-friend-request, get-sent/friend-requests, undo-friend-request, unfriend, check-friend-status, set/remove-friend-nickname, get-online-friends, get-friend-recommendations, get-alias-list, get-related-friend-groups. Groups: list/search-groups, get-group-info, create-group, add/remove-to/from-group, leave-group, rename-group, add/remove-group-admin, change-group-owner, disperse-group, update-group-settings, enable/disable/get-group-link, get/review-pending-members, get-group-blocked, block/unblock-group-member, get-group-members-info, join-group-link, invite-to-groups, get-group-invites, join/delete-group-invite. Polls: create-poll, vote-poll, lock-poll, get-poll-detail, add-poll-options, share-poll. Reminders: create/remove/edit-reminder, list-reminders. Conversation: mute/unmute/pin/unpin-conversation, delete-chat, hide/unhide-conversation, get-hidden-conversations, mark/unmark-unread, get-unread-marks, set-auto-delete-chat, get-auto-delete-chats, get-archived-chats. Quick Messages: list/add/remove/update-quick-message. Auto-Reply: list/create/update/delete-auto-reply. Profile: me, get-user-info, last-online, get-qr, update-profile, change-avatar, delete-avatar, get-avatar-list, reuse-avatar. Settings: get-settings, update-setting, update-active-status. Notes: create-note, edit-note, get-boards, get-labels. Catalogs: create/update/delete-catalog, get-catalogs, create/update/delete-product, get-products. Block: block/unblock-user (OpenClaw), zalo-block/unblock-user (Zalo-level), block-view-feed. Misc: search-stickers, parse-link, send-report, get-biz-account. Names are auto-resolved to IDs.",
+      description: "Complete Zalo personal account management via zca-js (149 actions). Messaging: send, image, link, send-to-stranger, send-video, send-voice, send-sticker, send-card, send-bank-card, delete-message, undo-message (recall), forward-message, add-reaction, send-typing. Friend: find-user, send-friend-request, accept/reject-friend-request, get-sent/friend-requests, undo-friend-request, unfriend, check-friend-status, set/remove-friend-nickname, get-online-friends, get-friend-recommendations, get-alias-list, get-related-friend-groups. Groups: list/search-groups, get-group-info, create-group, add/remove-to/from-group, leave-group, rename-group, add/remove-group-admin, change-group-owner, disperse-group, update-group-settings, enable/disable/get-group-link, get/review-pending-members, get-group-blocked, block/unblock-group-member, get-group-members-info, join-group-link, invite-to-groups, get-group-invites, join/delete-group-invite. Polls: create-poll, vote-poll, lock-poll, get-poll-detail, add-poll-options, share-poll. Reminders: create/remove/edit-reminder, list-reminders. Conversation: mute/unmute/pin/unpin-conversation, delete-chat, hide/unhide-conversation, get-hidden-conversations, mark/unmark-unread, get-unread-marks, set-auto-delete-chat, get-auto-delete-chats, get-archived-chats. Quick Messages: list/add/remove/update-quick-message. Auto-Reply: list/create/update/delete-auto-reply. Profile: me, get-user-info, last-online, get-qr, update-profile, change-avatar, delete-avatar, get-avatar-list, reuse-avatar. Settings: get-settings, update-setting, update-active-status. Notes: create-note, edit-note, get-boards, get-labels. Catalogs: create/update/delete-catalog, get-catalogs, create/update/delete-product, get-products. Block: block/unblock-user (OpenClaw), zalo-block/unblock-user (Zalo-level), block-view-feed. Misc: search-stickers, parse-link, send-report, get-biz-account. Names are auto-resolved to IDs.\n\nHOW TO USE \u2014 conventions: `threadId` = the chat to act on. In the CURRENT group use the RAW groupId (NO `g:` prefix) with `isGroup:true`; in a 1-1 DM use the userId with `isGroup:false`. After acting, reply briefly to the user \u2014 do NOT paste raw JSON/results. Be proactive: use these when it fits (user asks for a sticker, a poll, a reminder, a pinned note, etc.).\nRecipes: sticker \u2192 `send-sticker {threadId,isGroup,keyword:'<mood>'}` (auto-finds & sends; or specify `stickerId`+`stickerCateId`). reaction \u2192 `add-reaction {msgId,icon}` (icon: heart|like|haha|wow|cry|angry). poll \u2192 `create-poll {threadId,isGroup,title,options:[...],allowMultiChoices?}`. pinned note \u2192 `create-note {threadId,isGroup,title}`. reminder \u2192 `create-reminder {threadId,isGroup,title,startTime:<epochMs>,repeat:0|1|2|3}` (0=once,1=day,2=week,3=month; recurring cron-style \u2192 use the cron feature instead). media \u2192 `send-image|send-video|send-voice|send-file|send-link {threadId,isGroup,url|voiceUrl|filePath}`. recall the bot's OWN last message \u2192 `undo-message {threadId}` \u2014 NO msgId needed, it auto-picks the bot's most recent message in that thread (only within ~5 minutes; pass `msgId` to target a specific message). group admin (bot must be admin) \u2192 add/remove-group-admin, rename-group, change-group-owner, invite-to-groups, enable/disable/get-group-link, update-group-settings. conversation \u2192 pin-conversation, mute-conversation `{threadId,duration:-1}`, send-typing `{threadId,isGroup}`.",
       parameters: ZaloConnectToolSchema,
       execute: executeZaloConnectTool
     });

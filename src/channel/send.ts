@@ -2,6 +2,7 @@ import { ThreadType, TextStyle, type Style, type MessageContent, type Mention, t
 import { getApi } from "../client/zalo-client.js";
 import { resolveOutboundMentions } from "../parsing/mention-parser.js";
 import { redactOutput } from "../safety/output-filter.js";
+import { trackOutboundMessage } from "../features/auto-unsend.js";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -139,6 +140,11 @@ export async function sendMessageZaloConnect(
 
     const result = await api.sendMessage(content, threadId.trim(), type);
     const msgId = result?.message?.msgId;
+    // Track our own outbound so the agent can recall ("thu hồi") its last message
+    // in this thread without needing to know the raw msgId/cliMsgId.
+    if (msgId != null) {
+      trackOutboundMessage(threadId.trim(), String(msgId), (result?.message as any)?.cliMsgId != null ? String((result!.message as any).cliMsgId) : undefined);
+    }
     return { ok: true, messageId: msgId != null ? String(msgId) : undefined };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -161,6 +167,9 @@ async function sendMediaZaloConnect(
       type,
     );
     const msgId = result?.msgId;
+    if (msgId != null) {
+      trackOutboundMessage(threadId.trim(), String(msgId), (result as any)?.cliMsgId != null ? String((result as any).cliMsgId) : undefined);
+    }
     return { ok: true, messageId: msgId != null ? String(msgId) : undefined };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -179,6 +188,9 @@ export async function sendLinkZaloConnect(
     const type = options.isGroup ? ThreadType.Group : ThreadType.User;
     const result = await api.sendLink({ link: url.trim() }, threadId.trim(), type);
     const msgId = result?.msgId;
+    if (msgId != null) {
+      trackOutboundMessage(threadId.trim(), String(msgId), (result as any)?.cliMsgId != null ? String((result as any).cliMsgId) : undefined);
+    }
     return { ok: true, messageId: msgId != null ? String(msgId) : undefined };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -205,6 +217,9 @@ async function uploadAndSendLocalImage(
       try { fs.unlinkSync(localPath); } catch {}
     }
     const msgId = result?.message?.msgId;
+    if (msgId != null) {
+      trackOutboundMessage(threadId.trim(), String(msgId), (result?.message as any)?.cliMsgId != null ? String((result!.message as any).cliMsgId) : undefined);
+    }
     return { ok: true, messageId: msgId != null ? String(msgId) : undefined };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };

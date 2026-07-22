@@ -45,7 +45,22 @@ const plugin = {
         "Catalogs: create/update/delete-catalog, get-catalogs, create/update/delete-product, get-products. " +
         "Block: block/unblock-user (OpenClaw), zalo-block/unblock-user (Zalo-level), block-view-feed. " +
         "Misc: search-stickers, parse-link, send-report, get-biz-account. " +
-        "Names are auto-resolved to IDs.",
+        "Names are auto-resolved to IDs.\n\n" +
+        "HOW TO USE — conventions: `threadId` = the chat to act on. In the CURRENT group use the RAW groupId " +
+        "(NO `g:` prefix) with `isGroup:true`; in a 1-1 DM use the userId with `isGroup:false`. After acting, " +
+        "reply briefly to the user — do NOT paste raw JSON/results. Be proactive: use these when it fits " +
+        "(user asks for a sticker, a poll, a reminder, a pinned note, etc.).\n" +
+        "Recipes: sticker → `send-sticker {threadId,isGroup,keyword:'<mood>'}` (auto-finds & sends; or specify " +
+        "`stickerId`+`stickerCateId`). reaction → `add-reaction {msgId,icon}` (icon: heart|like|haha|wow|cry|angry). " +
+        "poll → `create-poll {threadId,isGroup,title,options:[...],allowMultiChoices?}`. pinned note → " +
+        "`create-note {threadId,isGroup,title}`. reminder → `create-reminder {threadId,isGroup,title,startTime:<epochMs>,repeat:0|1|2|3}` " +
+        "(0=once,1=day,2=week,3=month; recurring cron-style → use the cron feature instead). media → " +
+        "`send-image|send-video|send-voice|send-file|send-link {threadId,isGroup,url|voiceUrl|filePath}`. " +
+        "recall the bot's OWN last message → `undo-message {threadId}` — NO msgId needed, it auto-picks the bot's " +
+        "most recent message in that thread (only within ~5 minutes; pass `msgId` to target a specific message). " +
+        "group admin (bot must be admin) → add/remove-group-admin, rename-group, change-group-owner, " +
+        "invite-to-groups, enable/disable/get-group-link, update-group-settings. conversation → pin-conversation, " +
+        "mute-conversation `{threadId,duration:-1}`, send-typing `{threadId,isGroup}`.",
       parameters: ZaloConnectToolSchema,
       execute: executeZaloConnectTool,
     } as AnyAgentTool);

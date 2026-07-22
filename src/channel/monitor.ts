@@ -516,8 +516,10 @@ function convertToZaloConnectMessage(msg: Message): ZaloConnectMessage | null {
   // Guard: threadId must be present — recall/system events may omit it
   if (!msg.threadId) return null;
 
-  // Keep quote text metadata only. Do not treat quoted attachments as current
-  // customer uploads; otherwise replying to an old image can inject stale media.
+  // Carry the quoted message's raw attachment JSON (quote.attach) through so
+  // processMessage can extract its media ONLY when the user explicitly replies
+  // to a photo/file and addresses the bot. A passively received quote never
+  // triggers a download on its own — the mention gate still guards that below.
   const quote = (data as any).quote as { ownerId?: string; msg?: string; attach?: string; fromD?: string } | undefined;
 
   const isGroup = msg.type === ThreadType.Group;
@@ -550,6 +552,7 @@ function convertToZaloConnectMessage(msg: Message): ZaloConnectMessage | null {
       fromName: quote.fromD || undefined,
       msgId: (quote as any).globalMsgId ? String((quote as any).globalMsgId) : undefined,
       ts: (quote as any).ts || undefined,
+      attach: typeof quote.attach === "string" && quote.attach.trim() ? quote.attach.trim() : undefined,
     } : undefined,
     metadata: {
       isGroup,
@@ -715,11 +718,37 @@ async function processMessage(
   const dmPolicy = account.config.dmPolicy ?? "open";
   const configAllowFrom = (account.config.allowFrom ?? ["*"]).map((v) => String(v));
 
-  // Inject reply/quote context into the message content itself
+  // Inject reply/quote context into the message content itself. When the user
+  // explicitly replies to (quotes) a photo/file while addressing the bot, treat
+  // that quoted attachment as the target of THIS turn: parse quote.attach and
+  // merge its media into message.mediaUrls so the download+attach path below
+  // picks it up. This is safe (no stale-image risk) because the user pointed at
+  // the media on purpose; the mention gate still decides whether we download.
   let effectiveContent = content.trim();
-  if (message.quote?.msg) {
+  if (message.quote?.msg || message.quote?.attach) {
     const quoteSender = message.quote.fromName || message.quote.fromId || "unknown";
-    effectiveContent = `[Replying to ${quoteSender}: "${message.quote.msg}"]\n${effectiveContent}`;
+    let quotedMediaNote = "";
+    if (message.quote.attach) {
+      try {
+        const quotedUrls: string[] = [];
+        const quotedTypes: string[] = [];
+        extractMediaFromObject(JSON.parse(message.quote.attach), quotedUrls, quotedTypes);
+        if (quotedUrls.length > 0) {
+          message.mediaUrls = message.mediaUrls ?? [];
+          message.mediaTypes = message.mediaTypes ?? [];
+          for (let i = 0; i < quotedUrls.length; i++) {
+            if (message.mediaUrls.includes(quotedUrls[i])) continue;
+            message.mediaUrls.push(quotedUrls[i]);
+            message.mediaTypes.push(quotedTypes[i] ?? "image/jpeg");
+          }
+          quotedMediaNote = " [with media]";
+        }
+      } catch {
+        // quote.attach is not JSON (plain-text quote) — nothing to extract.
+      }
+    }
+    const quotedText = message.quote.msg ? `"${message.quote.msg}"` : "[media]";
+    effectiveContent = `[Replying to ${quoteSender}: ${quotedText}${quotedMediaNote}]\n${effectiveContent}`;
   }
 
   const rawBody = effectiveContent;

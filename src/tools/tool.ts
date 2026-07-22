@@ -22,6 +22,7 @@ import {
 } from "zca-js";
 import { getApi as getAccountApi, getCurrentUid } from "../client/zalo-client.js";
 import { lookupCliMsgId } from "../features/msg-id-store.js";
+import { getLastOutbound } from "../features/auto-unsend.js";
 import {
   readOpenClawConfig,
   writeOpenClawConfig,
@@ -716,15 +717,26 @@ async function dispatch(p: Params): Promise<ToolResult> {
     }
 
     case "undo-message": {
-      if (!p.msgId) throw new Error("msgId required");
+      let undoMsgId = p.msgId as string | undefined;
       let undoCliMsgId = p.cliMsgId as string | undefined;
+      // Fallback: with no explicit msgId, recall the bot's OWN last message in
+      // this thread (tracked on send, 5-minute TTL). Lets the agent honour
+      // "thu hồi tin trước đó" with just the current threadId.
+      if (!undoMsgId) {
+        const threadId = p.threadId != null ? String(p.threadId) : undefined;
+        if (!threadId) throw new Error("Provide msgId, or threadId to recall the last message I sent there");
+        const last = getLastOutbound(threadId);
+        if (!last) throw new Error("No recent message from me to recall in this thread (only messages I sent in the last 5 minutes can be undone)");
+        undoMsgId = last.msgId;
+        undoCliMsgId = undoCliMsgId ?? last.cliMsgId ?? last.msgId;
+      }
       if (!undoCliMsgId) {
-        const stored = lookupCliMsgId(p.msgId);
+        const stored = lookupCliMsgId(undoMsgId);
         if (stored) undoCliMsgId = stored.cliMsgId;
       }
       if (!undoCliMsgId) throw new Error("cliMsgId not found — message may be too old");
       const a = await api();
-      const res = await (a as any).undo({ msgId: p.msgId, cliMsgId: undoCliMsgId });
+      const res = await (a as any).undo({ msgId: undoMsgId, cliMsgId: undoCliMsgId });
       return ok({ success: true, result: res });
     }
 
