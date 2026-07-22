@@ -6,6 +6,21 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 ## [Unreleased]
 
+## [3.0.6] — 2026-07-22
+
+### Sửa lỗi
+- **Hết cảnh báo `legacy-root-sdk-import`:** `index.ts` chuyển từ barrel gốc
+  `openclaw/plugin-sdk` sang subpath `openclaw/plugin-sdk/plugin-entry`
+  (`AnyAgentTool`, `OpenClawPluginApi`, `emptyPluginConfigSchema`). Plugin
+  Inspector sạch, không còn cảnh báo khi publish lên ClawHub.
+
+### Ghi chú
+- Gộp và đưa lên ClawHub `latest` toàn bộ cải tiến 3.0.2→3.0.5 vốn đã đăng ký
+  version nhưng con trỏ `latest` chưa nhích: đọc/phân tích ảnh từ tin **quote**
+  (`quote.attach` → tải + đính media), **thu hồi tin của bot** đáng tin cậy
+  (`undo-message` bắt `cliMsgId` thật qua selfListen echo + `threadId`/ThreadType),
+  và cookbook action zalo-connect nhúng thẳng vào mô tả tool.
+
 ## [3.0.0] — 2026-07-17
 
 ### Sửa lỗi sau phát hành

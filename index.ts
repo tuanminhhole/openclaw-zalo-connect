@@ -1,5 +1,5 @@
-import type { AnyAgentTool, OpenClawPluginApi } from "openclaw/plugin-sdk";
-import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
+import type { AnyAgentTool, OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
+import { emptyPluginConfigSchema } from "openclaw/plugin-sdk/plugin-entry";
 import { zaloConnectPlugin } from "./src/channel/channel.js";
 import { exposeBridgeService } from "./src/runtime/bridge.js";
 import { setZaloConnectRuntime } from "./src/runtime/runtime.js";

@@ -63525,7 +63525,7 @@ var init_monitor = __esm({
 });
 
 // index.ts
-import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
+import { emptyPluginConfigSchema } from "openclaw/plugin-sdk/plugin-entry";
 
 // src/channel/channel.ts
 import {
