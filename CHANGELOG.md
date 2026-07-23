@@ -6,6 +6,29 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 ## [Unreleased]
 
+## [3.0.8] — 2026-07-23
+
+### Sửa lỗi
+- **Nhiều bot chung một nhóm bị "nuốt" tin của nhau (dedup toàn cục):** khử trùng
+  lặp `msgId` trước đây khóa theo `msgId` — mà Zalo giao **cùng một `msgId`** cho
+  MỌI tài khoản bot trong nhóm. Tài khoản nào nhận trước "thắng", các tài khoản còn
+  lại lặng lẽ bỏ tin → trong nhóm có 2+ bot, mỗi tin chỉ được một bot xử lý và bot
+  được gọi thường **không trả lời** ("bot ngủm"). Nay khóa theo `accountId:msgId`,
+  mỗi tài khoản khử trùng lặp độc lập (vẫn chặn delivery-mirror của chính nó).
+- **Mention bị lặp đôi khi trả lời (`@Tên @Tên …`):** nếu model đã tự mở đầu câu
+  trả lời bằng đúng `@Tên` thì không chèn thêm mention thứ hai nữa — chỉ đánh dấu
+  token sẵn có thành mention có thể bấm.
+
+### Thay đổi
+- **selfListen bật lại (`true`):** cần cho việc thu hồi tin của chính bot (self-echo
+  là nguồn `cliMsgId` tin cậy vì API gửi không trả về). Trước đây bị tắt vì nghi gây
+  "đói" đa-tài-khoản — thực chất thủ phạm là dedup toàn cục ở trên, nay đã sửa nên
+  self-echo chỉ thêm chút tải ws, không hại đa-tài-khoản.
+- **Ổn định listener đa-tài-khoản:** watchdog dùng ping/pong ở tầng websocket (socket
+  rảnh-mà-khỏe vẫn trả lời ping nên không còn reconnect nhầm khi nhóm im), giãn ~6s
+  khi mở tài khoản non-default, và reconnect bằng phiên/`api` mới thay vì khởi động
+  lại listener đã chết.
+
 ## [3.0.7] — 2026-07-22
 
 ### Sửa lỗi

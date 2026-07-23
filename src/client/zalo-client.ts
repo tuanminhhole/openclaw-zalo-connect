@@ -25,6 +25,12 @@ async function imageMetadataGetter(filePath: string) {
 
 export async function loginWithQR(callback?: QrCallback, accountId?: string | null): Promise<API> {
   const id = normalizeAccountId(accountId);
+  // selfListen:true is required for reliable self-message recall: the send API does
+  // not return a usable cliMsgId, so the self-echo delivered to our own listener is
+  // the only reliable source of it (see monitor.ts message handler). The earlier
+  // multi-account "starvation" this was blamed for was actually a GLOBAL msgId dedup
+  // that cross-dropped messages between accounts — now fixed (per-account dedup key),
+  // so self-echo adds only marginal ws load and no longer harms multi-account.
   const zalo = new Zalo({ logging: false, selfListen: true, imageMetadataGetter });
   const api = await zalo.loginQR(undefined, (event) => {
     if (event.type === LoginQRCallbackEventType.GotLoginInfo && event.data) {
@@ -53,6 +59,7 @@ export async function loginWithCredentials(accountId?: string | null): Promise<A
   if (!creds) {
     throw new Error("No saved credentials found. Login with QR first.");
   }
+  // selfListen:true is required for reliable self-message recall (see loginWithQR).
   const zalo = new Zalo({ logging: false, selfListen: true, imageMetadataGetter });
   const api = await zalo.login({
     imei: creds.imei,
@@ -119,6 +126,20 @@ export async function logout(accountId?: string | null): Promise<void> {
   currentUids.delete(id);
   loginPromises.delete(id);
   deleteCredentials(id);
+}
+
+/**
+ * Drop the cached API instance for an account WITHOUT clearing its stored
+ * credentials, so the next getApi() rebuilds a fresh session + listener from
+ * the saved cookies. Used by the monitor to recover a stalled/closed listener
+ * (esp. the 2nd+ account when running multiple Zalo sessions in one process) —
+ * restarting the SAME (dead) listener does not recover; a fresh api does.
+ */
+export function invalidateApi(accountId?: string | null): void {
+  const id = normalizeAccountId(accountId);
+  apiInstances.delete(id);
+  currentUids.delete(id);
+  loginPromises.delete(id);
 }
 
 export async function ensureAuthenticated(accountId?: string | null): Promise<API> {

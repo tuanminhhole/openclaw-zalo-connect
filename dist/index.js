@@ -41193,6 +41193,7 @@ __export(zalo_client_exports, {
   getApiSync: () => getApiSync,
   getCurrentUid: () => getCurrentUid,
   hasStoredCredentials: () => hasStoredCredentials,
+  invalidateApi: () => invalidateApi,
   isAuthenticated: () => isAuthenticated,
   loginWithCredentials: () => loginWithCredentials,
   loginWithQR: () => loginWithQR,
@@ -41285,6 +41286,12 @@ async function logout(accountId) {
   currentUids.delete(id);
   loginPromises.delete(id);
   deleteCredentials(id);
+}
+function invalidateApi(accountId) {
+  const id = normalizeAccountId2(accountId);
+  apiInstances.delete(id);
+  currentUids.delete(id);
+  loginPromises.delete(id);
 }
 async function ensureAuthenticated(accountId) {
   return getApi(accountId);
@@ -62123,10 +62130,11 @@ function cacheInboundMessage(threadId, data) {
     propertyExt: data.propertyExt
   });
 }
-function isDuplicateMsg(msgId) {
+function isDuplicateMsg(msgId, accountId) {
   if (!msgId) return false;
+  const key = `${accountId}:${msgId}`;
   const now = Date.now();
-  if (processedMsgIds.has(msgId)) return true;
+  if (processedMsgIds.has(key)) return true;
   if (processedMsgIds.size >= DEDUP_MAX) {
     for (const [id, ts] of processedMsgIds) {
       if (now - ts > DEDUP_TTL) processedMsgIds.delete(id);
@@ -62136,7 +62144,7 @@ function isDuplicateMsg(msgId) {
       if (oldest) processedMsgIds.delete(oldest);
     }
   }
-  processedMsgIds.set(msgId, now);
+  processedMsgIds.set(key, now);
   return false;
 }
 function isSystemNotificationContent(content) {
@@ -63023,7 +63031,9 @@ async function deliverZaloConnectReply(params) {
   let nativeReplyMention;
   if (isGroup && text && params.replyMention?.uid) {
     const label = `@${params.replyMention.displayName || params.replyMention.uid}`;
-    text = `${label} ${text}`;
+    if (!text.toLowerCase().startsWith(label.toLowerCase())) {
+      text = `${label} ${text}`;
+    }
     nativeReplyMention = { uid: String(params.replyMention.uid), pos: 0, len: label.length };
     runtime2.log?.(`[${accountId || "default"}] native reply mention attached: uid=${params.replyMention.uid} group=${chatId}`);
   }
@@ -63079,6 +63089,17 @@ async function monitorZaloConnectProvider(options) {
   let restartTimer = null;
   let keepAliveTimer = null;
   let resolveRunning = null;
+  let reconnectTimer = null;
+  let watchdogTimer = null;
+  let reconnecting = false;
+  let reconnectAttempts = 0;
+  let lastListenerEventAt = Date.now();
+  let lastPongAt = Date.now();
+  let pongSeen = false;
+  const HEALTHCHECK_INTERVAL_MS = 2e4;
+  const PONG_TIMEOUT_MS = 6e4;
+  const RECONNECT_BASE_MS = 4e3;
+  const RECONNECT_MAX_MS = 6e4;
   try {
     const allowFromEntries = (account.config.allowFrom ?? []).map((entry) => normalizeZaloConnectEntry(String(entry))).filter((entry) => entry && entry !== "*");
     if (allowFromEntries.length > 0) {
@@ -63249,9 +63270,49 @@ async function monitorZaloConnectProvider(options) {
       clearInterval(keepAliveTimer);
       keepAliveTimer = null;
     }
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (watchdogTimer) {
+      clearInterval(watchdogTimer);
+      watchdogTimer = null;
+    }
     resolveRunning?.();
   };
   let listenersRegistered = false;
+  const scheduleReconnect = (reason) => {
+    if (stopped || abortSignal.aborted || reconnecting) return;
+    reconnecting = true;
+    const delayMs = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** Math.min(reconnectAttempts, 4));
+    reconnectAttempts++;
+    runtime2.log?.(`[${account.accountId}] listener reconnect (in ${Math.round(delayMs / 1e3)}s, attempt ${reconnectAttempts}): ${reason}`);
+    if (keepAliveTimer) {
+      clearInterval(keepAliveTimer);
+      keepAliveTimer = null;
+    }
+    if (watchdogTimer) {
+      clearInterval(watchdogTimer);
+      watchdogTimer = null;
+    }
+    try {
+      getApiSync(account.accountId)?.listener?.stop?.();
+    } catch {
+    }
+    invalidateApi(account.accountId);
+    listenersRegistered = false;
+    if (restartTimer) {
+      clearTimeout(restartTimer);
+      restartTimer = null;
+    }
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      reconnecting = false;
+      lastListenerEventAt = Date.now();
+      startListener();
+    }, delayMs);
+    reconnectTimer.unref?.();
+  };
   const startListener = async () => {
     if (stopped || abortSignal.aborted) {
       resolveRunning?.();
@@ -63266,7 +63327,7 @@ async function monitorZaloConnectProvider(options) {
           api.listener.stop();
         } catch {
         }
-        api.listener.start({ retryOnClose: true });
+        api.listener.start({ retryOnClose: false });
         return;
       }
       listenersRegistered = true;
@@ -63320,6 +63381,8 @@ async function monitorZaloConnectProvider(options) {
         }
       });
       api.listener.on("message", (msg) => {
+        lastListenerEventAt = Date.now();
+        reconnectAttempts = 0;
         if (msg.isSelf || selfUid && msg.data?.uidFrom === selfUid) {
           try {
             const sMsgId = msg.data?.msgId != null ? String(msg.data.msgId) : "";
@@ -63334,7 +63397,7 @@ async function monitorZaloConnectProvider(options) {
           }
           return;
         }
-        if (isDuplicateMsg(msg.data.msgId)) {
+        if (isDuplicateMsg(msg.data.msgId, account.accountId)) {
           logVerbose(core, runtime2, `[${account.accountId}] skipping duplicate msgId ${msg.data.msgId}`);
           return;
         }
@@ -63410,12 +63473,14 @@ async function monitorZaloConnectProvider(options) {
         logVerbose(core, runtime2, `[${account.accountId}] reaction: ${icon} from ${fromUid} in ${isGroup ? "group" : "dm"} ${threadId}`);
       });
       api.listener.on("typing", (typing) => {
+        lastListenerEventAt = Date.now();
         if (typing.isSelf) return;
         const threadId = typing.threadId;
         const isGroup = typing.type === ThreadType.Group;
         logVerbose(core, runtime2, `[${account.accountId}] typing in ${isGroup ? "group" : "dm"} ${threadId}`);
       });
       api.listener.on("seen_messages", (seenObjects) => {
+        lastListenerEventAt = Date.now();
         for (const seen of seenObjects) {
           if (seen.threadId && seen.uid) {
             recordReadReceipt(seen.threadId, seen.uid);
@@ -63425,6 +63490,7 @@ async function monitorZaloConnectProvider(options) {
       });
       api.listener.on("error", (err2) => {
         runtime2.error(`[${account.accountId}] listener error: ${err2 instanceof Error ? err2.message : JSON.stringify(err2)}`);
+        scheduleReconnect(`error: ${err2 instanceof Error ? err2.message : String(err2)}`);
       });
       api.listener.on("closed", (code, reason) => {
         runtime2.log?.(`[${account.accountId}] listener closed: code=${code} reason=${reason}`);
@@ -63432,12 +63498,53 @@ async function monitorZaloConnectProvider(options) {
           clearInterval(keepAliveTimer);
           keepAliveTimer = null;
         }
-        if (stopped || abortSignal.aborted) resolveRunning?.();
+        if (stopped || abortSignal.aborted) {
+          resolveRunning?.();
+          return;
+        }
+        scheduleReconnect(`closed code=${code} reason=${reason || "n/a"}`);
       });
       api.listener.on("connected", () => {
-        logVerbose(core, runtime2, `[${account.accountId}] listener connected`);
+        lastListenerEventAt = Date.now();
+        reconnectAttempts = 0;
+        runtime2.log?.(`[${account.accountId}] listener connected`);
       });
-      api.listener.start({ retryOnClose: true });
+      api.listener.start({ retryOnClose: false });
+      lastListenerEventAt = Date.now();
+      lastPongAt = Date.now();
+      pongSeen = false;
+      const rawWs = api.listener?.ws;
+      try {
+        rawWs?.on?.("pong", () => {
+          if (!pongSeen) runtime2.log?.(`[${account.accountId}] ws pong OK \u2014 liveness probe active`);
+          lastPongAt = Date.now();
+          pongSeen = true;
+        });
+      } catch {
+      }
+      if (watchdogTimer) {
+        clearInterval(watchdogTimer);
+        watchdogTimer = null;
+      }
+      watchdogTimer = setInterval(() => {
+        if (stopped || abortSignal.aborted || reconnecting) return;
+        const w = api.listener?.ws;
+        const readyState = w?.readyState;
+        if (readyState === 2 || readyState === 3) {
+          scheduleReconnect(`ws ${readyState === 2 ? "closing" : "closed"} without close event`);
+          return;
+        }
+        if (readyState === 1) {
+          try {
+            w?.ping?.();
+          } catch {
+          }
+          if (pongSeen && Date.now() - lastPongAt > PONG_TIMEOUT_MS) {
+            scheduleReconnect(`no pong for ${Math.round((Date.now() - lastPongAt) / 1e3)}s (socket starved)`);
+          }
+        }
+      }, HEALTHCHECK_INTERVAL_MS);
+      watchdogTimer.unref?.();
       const keepaliveDuration = api.getContext().settings?.keepalive?.keepalive_duration;
       if (keepaliveDuration && keepaliveDuration > 0) {
         const intervalMs = keepaliveDuration * 1e3;
@@ -63451,6 +63558,7 @@ async function monitorZaloConnectProvider(options) {
             if (serialized) refreshCredentials(serialized, account.accountId);
           } catch (err2) {
             runtime2.error(`[${account.accountId}] keepAlive failed: ${String(err2)}`);
+            scheduleReconnect(`keepAlive failed: ${String(err2)}`);
           }
         }, intervalMs);
       }
@@ -79236,6 +79344,9 @@ var zaloConnectPlugin = {
   gateway: {
     startAccount: async (ctx) => {
       const account = ctx.account;
+      if (account.accountId && account.accountId !== "default") {
+        await new Promise((resolve5) => setTimeout(resolve5, 6e3));
+      }
       let userLabel = "";
       try {
         const userInfo = await getZaloConnectUserInfo(account.accountId);

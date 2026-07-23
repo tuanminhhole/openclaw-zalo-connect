@@ -20,7 +20,7 @@ import { ThreadType, FriendEventType, Reactions, type API, type Message, type Us
 import type { ResolvedZaloConnectAccount, ZaloConnectFriend, ZaloConnectGroup, ZaloConnectMessage } from "../runtime/types.js";
 import { getZaloConnectRuntime } from "../runtime/runtime.js";
 import { sendMessageZaloConnect } from "./send.js";
-import { getApi, getCurrentUid } from "../client/zalo-client.js";
+import { getApi, getCurrentUid, getApiSync, invalidateApi } from "../client/zalo-client.js";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
@@ -146,10 +146,17 @@ const processedMsgIds = new Map<string, number>();
 const DEDUP_TTL = 60_000; // 60 seconds
 const DEDUP_MAX = 2000;
 
-function isDuplicateMsg(msgId: string | undefined): boolean {
+function isDuplicateMsg(msgId: string | undefined, accountId: string): boolean {
   if (!msgId) return false;
+  // Key by account+msgId. Zalo delivers the SAME server-assigned msgId to EVERY
+  // bot account that belongs to the group. A global (msgId-only) key let the first
+  // account to receive a message "win" the dedup while every other account silently
+  // dropped it — so in a group shared by 2+ bots each message was handled by only
+  // one bot and the addressed bot frequently never replied ("bot goes silent").
+  // Per-account keying still dedups this account's own delivery-mirror echoes.
+  const key = `${accountId}:${msgId}`;
   const now = Date.now();
-  if (processedMsgIds.has(msgId)) return true;
+  if (processedMsgIds.has(key)) return true;
   // Evict expired entries when approaching limit
   if (processedMsgIds.size >= DEDUP_MAX) {
     for (const [id, ts] of processedMsgIds) {
@@ -161,7 +168,7 @@ function isDuplicateMsg(msgId: string | undefined): boolean {
       if (oldest) processedMsgIds.delete(oldest);
     }
   }
-  processedMsgIds.set(msgId, now);
+  processedMsgIds.set(key, now);
   return false;
 }
 
@@ -1271,7 +1278,13 @@ async function deliverZaloConnectReply(params: {
   let nativeReplyMention: { uid: string; pos: number; len: number } | undefined;
   if (isGroup && text && params.replyMention?.uid) {
     const label = `@${params.replyMention.displayName || params.replyMention.uid}`;
-    text = `${label} ${text}`;
+    // Only prepend the reply @mention if the model didn't already open its reply
+    // with the SAME @name. Otherwise the message renders "@Name @Name ..." (double
+    // mention). When it's already there, just mark that leading token as the native
+    // (clickable) mention instead of adding a duplicate.
+    if (!text.toLowerCase().startsWith(label.toLowerCase())) {
+      text = `${label} ${text}`;
+    }
     nativeReplyMention = { uid: String(params.replyMention.uid), pos: 0, len: label.length };
     runtime.log?.(`[${accountId || "default"}] native reply mention attached: uid=${params.replyMention.uid} group=${chatId}`);
   }
@@ -1340,6 +1353,25 @@ export async function monitorZaloConnectProvider(
   let restartTimer: ReturnType<typeof setTimeout> | null = null;
   let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
   let resolveRunning: (() => void) | null = null;
+  // Listener health/reconnect (esp. for the 2nd+ account when several Zalo sessions
+  // run in one process — zca-js's internal retryOnClose does not reliably recover a
+  // silently-stalled session). We reconnect with a FRESH api on close/error/stall.
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let watchdogTimer: ReturnType<typeof setInterval> | null = null;
+  let reconnecting = false;
+  let reconnectAttempts = 0;
+  let lastListenerEventAt = Date.now();
+  // ws-level ping/pong liveness. A quiet-but-healthy socket still answers pings, so
+  // this distinguishes "idle" (pong keeps coming) from "zombie" (Zalo stopped
+  // servicing the socket → no pong) WITHOUT false-firing on idle like a message-gap
+  // watchdog does. Only enforced once we've seen at least one pong (proving the server
+  // answers pings at all), so it can never cause a false reconnect.
+  let lastPongAt = Date.now();
+  let pongSeen = false;
+  const HEALTHCHECK_INTERVAL_MS = 20_000;
+  const PONG_TIMEOUT_MS = 60_000;
+  const RECONNECT_BASE_MS = 4_000;
+  const RECONNECT_MAX_MS = 60_000;
 
   // Resolve allowFrom name→id mappings
   try {
@@ -1506,10 +1538,35 @@ export async function monitorZaloConnectProvider(
     stopped = true;
     if (restartTimer) { clearTimeout(restartTimer); restartTimer = null; }
     if (keepAliveTimer) { clearInterval(keepAliveTimer); keepAliveTimer = null; }
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null; }
     resolveRunning?.();
   };
 
   let listenersRegistered = false;
+
+  // Force a fresh reconnect: drop the cached (possibly-dead) api so startListener
+  // rebuilds a new session + listener from stored credentials. Debounced.
+  const scheduleReconnect = (reason: string) => {
+    if (stopped || abortSignal.aborted || reconnecting) return;
+    reconnecting = true;
+    const delayMs = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** Math.min(reconnectAttempts, 4));
+    reconnectAttempts++;
+    runtime.log?.(`[${account.accountId}] listener reconnect (in ${Math.round(delayMs / 1000)}s, attempt ${reconnectAttempts}): ${reason}`);
+    if (keepAliveTimer) { clearInterval(keepAliveTimer); keepAliveTimer = null; }
+    if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null; }
+    try { getApiSync(account.accountId)?.listener?.stop?.(); } catch {}
+    invalidateApi(account.accountId);
+    listenersRegistered = false;
+    if (restartTimer) { clearTimeout(restartTimer); restartTimer = null; }
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      reconnecting = false;
+      lastListenerEventAt = Date.now();
+      startListener();
+    }, delayMs);
+    reconnectTimer.unref?.();
+  };
 
   const startListener = async () => {
     if (stopped || abortSignal.aborted) { resolveRunning?.(); return; }
@@ -1519,7 +1576,7 @@ export async function monitorZaloConnectProvider(
       const selfUid = getCurrentUid(account.accountId) ?? api.getOwnId();
       if (listenersRegistered) {
         try { api.listener.stop(); } catch {}
-        api.listener.start({ retryOnClose: true });
+        api.listener.start({ retryOnClose: false });
         return;
       }
       listenersRegistered = true;
@@ -1578,6 +1635,8 @@ export async function monitorZaloConnectProvider(
       });
 
       api.listener.on("message", (msg: Message) => {
+        lastListenerEventAt = Date.now(); // socket is alive (any inbound, incl. self-echo)
+        reconnectAttempts = 0;             // healthy delivery → reset backoff
         // Self-sent messages (via selfListen): the send API never returns cliMsgId, so this echo is
         // the ONLY place we learn our own message's real cliMsgId. Record msgId→cliMsgId + track it
         // so the agent can recall its own message with undo-message. Then skip normal processing.
@@ -1595,7 +1654,7 @@ export async function monitorZaloConnectProvider(
           return;
         }
         // Dedup by msgId to prevent duplicate processing of delivery-mirror events
-        if (isDuplicateMsg(msg.data.msgId)) {
+        if (isDuplicateMsg(msg.data.msgId, account.accountId)) {
           logVerbose(core, runtime, `[${account.accountId}] skipping duplicate msgId ${msg.data.msgId}`);
           return;
         }
@@ -1689,6 +1748,7 @@ export async function monitorZaloConnectProvider(
 
       // Typing events from other users
       api.listener.on("typing", (typing: Typing) => {
+        lastListenerEventAt = Date.now(); // ws alive
         if (typing.isSelf) return;
         const threadId = typing.threadId;
         const isGroup = typing.type === ThreadType.Group;
@@ -1697,6 +1757,7 @@ export async function monitorZaloConnectProvider(
 
       // Read/seen receipts
       api.listener.on("seen_messages", (seenObjects: Array<{ threadId: string; uid?: string; msgId?: string }>) => {
+        lastListenerEventAt = Date.now(); // ws alive
         for (const seen of seenObjects) {
           if (seen.threadId && seen.uid) {
             recordReadReceipt(seen.threadId, seen.uid);
@@ -1707,19 +1768,65 @@ export async function monitorZaloConnectProvider(
 
       api.listener.on("error", (err: unknown) => {
         runtime.error(`[${account.accountId}] listener error: ${err instanceof Error ? err.message : JSON.stringify(err)}`);
+        scheduleReconnect(`error: ${err instanceof Error ? err.message : String(err)}`);
       });
 
       api.listener.on("closed", (code: number, reason: string) => {
         runtime.log?.(`[${account.accountId}] listener closed: code=${code} reason=${reason}`);
         if (keepAliveTimer) { clearInterval(keepAliveTimer); keepAliveTimer = null; }
-        if (stopped || abortSignal.aborted) resolveRunning?.();
+        if (stopped || abortSignal.aborted) { resolveRunning?.(); return; }
+        // Do NOT rely on zca-js's internal retry (retryOnClose:false) — rebuild a
+        // fresh api/session so a silently-dead 2nd-account listener recovers.
+        scheduleReconnect(`closed code=${code} reason=${reason || "n/a"}`);
       });
 
       api.listener.on("connected", () => {
-        logVerbose(core, runtime, `[${account.accountId}] listener connected`);
+        lastListenerEventAt = Date.now();
+        reconnectAttempts = 0;
+        runtime.log?.(`[${account.accountId}] listener connected`);
       });
 
-      api.listener.start({ retryOnClose: true });
+      // retryOnClose:false → the "closed" event surfaces to us so we reconnect with
+      // a fresh api (zca-js's internal retry can swallow the close and keep a dead
+      // socket, which is why the 2nd account went silent).
+      api.listener.start({ retryOnClose: false });
+
+      // Watchdog: if no inbound/keepalive activity for too long, the socket is likely
+      // dead-but-silent → force a fresh reconnect.
+      // Reset liveness for this connection and hook ws-level pong frames.
+      lastListenerEventAt = Date.now();
+      lastPongAt = Date.now();
+      pongSeen = false;
+      type RawWs = { readyState?: number; ping?: () => void; on?: (ev: string, cb: () => void) => void };
+      const rawWs = (api.listener as unknown as { ws?: RawWs })?.ws;
+      try {
+        rawWs?.on?.("pong", () => {
+          if (!pongSeen) runtime.log?.(`[${account.accountId}] ws pong OK — liveness probe active`);
+          lastPongAt = Date.now();
+          pongSeen = true;
+        });
+      } catch {}
+
+      if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null; }
+      watchdogTimer = setInterval(() => {
+        if (stopped || abortSignal.aborted || reconnecting) return;
+        const w = (api.listener as unknown as { ws?: RawWs })?.ws;
+        const readyState = w?.readyState;
+        // Confirmed dead socket that didn't fire "closed" → reconnect.
+        if (readyState === 2 || readyState === 3) {
+          scheduleReconnect(`ws ${readyState === 2 ? "closing" : "closed"} without close event`);
+          return;
+        }
+        if (readyState === 1) {
+          // Actively probe the socket. A healthy socket answers even when the group is
+          // idle (so we never false-fire on quiet); a Zalo-starved socket stops answering.
+          try { w?.ping?.(); } catch {}
+          if (pongSeen && Date.now() - lastPongAt > PONG_TIMEOUT_MS) {
+            scheduleReconnect(`no pong for ${Math.round((Date.now() - lastPongAt) / 1000)}s (socket starved)`);
+          }
+        }
+      }, HEALTHCHECK_INTERVAL_MS);
+      watchdogTimer.unref?.();
 
       // KeepAlive heartbeat
       const keepaliveDuration = api.getContext().settings?.keepalive?.keepalive_duration;
@@ -1730,11 +1837,14 @@ export async function monitorZaloConnectProvider(
           if (stopped || abortSignal.aborted) return;
           try {
             await api.keepAlive();
+            // NOTE: keepAlive is an HTTP call — it can succeed while the listener
+            // websocket is silently dead, so it must NOT count as listener activity.
             const jar = api.getCookie();
             const serialized = jar.serializeSync?.()?.cookies ?? jar.toJSON?.()?.cookies;
             if (serialized) refreshCredentials(serialized, account.accountId);
           } catch (err) {
             runtime.error(`[${account.accountId}] keepAlive failed: ${String(err)}`);
+            scheduleReconnect(`keepAlive failed: ${String(err)}`);
           }
         }, intervalMs);
       }

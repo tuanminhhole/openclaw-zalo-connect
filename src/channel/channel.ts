@@ -567,6 +567,12 @@ export const zaloConnectPlugin: ChannelPlugin<ResolvedZaloConnectAccount> = {
   gateway: {
     startAccount: async (ctx) => {
       const account = ctx.account;
+      // Stagger non-default accounts so several Zalo websockets don't open at the exact
+      // same instant — opening them simultaneously makes Zalo more likely to drop one of
+      // the concurrent connections (the observed "2nd bot goes silent" symptom).
+      if (account.accountId && account.accountId !== "default") {
+        await new Promise((resolve) => setTimeout(resolve, 6000));
+      }
       let userLabel = "";
       try {
         const userInfo = await getZaloConnectUserInfo(account.accountId);

@@ -1,6 +1,6 @@
 {
   "name": "openclaw-zalo-connect",
-  "version": "3.0.7",
+  "version": "3.0.8",
   "description": "Connect OpenClaw to Zalo personal accounts via zca-js",
   "type": "module",
   "main": "dist/index.js",
