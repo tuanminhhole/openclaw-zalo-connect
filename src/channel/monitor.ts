@@ -993,8 +993,13 @@ async function processMessage(
     }
   }
 
-  // Only process images in DMs or when bot was mentioned in groups
-  const shouldProcessImages = !isGroup || wasMentioned;
+  // Process this message's images whenever the bot is actually handling the message:
+  // a DM, an @mention, OR a group that doesn't require a mention (we've already passed
+  // the mention gate above, so we're dispatching this message to the agent — e.g. a
+  // name-triggered bot). Previously this gated on wasMentioned ONLY, so a bot addressed
+  // by NAME instead of @mention (requireMention:false) never received the image even
+  // though it replied — asymmetric "one bot sees images, the other doesn't".
+  const shouldProcessImages = !isGroup || wasMentioned || !resolvedRequireMention;
 
   let localMediaPaths: string[] | undefined;
   if (shouldProcessImages && message.mediaUrls && message.mediaUrls.length > 0) {

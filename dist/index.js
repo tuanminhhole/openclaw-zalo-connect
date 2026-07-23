@@ -62786,7 +62786,7 @@ ${bodyWithSender}`;
       }
     }
   }
-  const shouldProcessImages = !isGroup || wasMentioned;
+  const shouldProcessImages = !isGroup || wasMentioned || !resolvedRequireMention;
   let localMediaPaths;
   if (shouldProcessImages && message.mediaUrls && message.mediaUrls.length > 0) {
     console.log(`[zalo-connect] Downloading ${message.mediaUrls.length} attachment(s) for native support...`);

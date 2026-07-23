@@ -6,6 +6,17 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 ## [Unreleased]
 
+## [3.0.9] — 2026-07-23
+
+### Sửa lỗi
+- **Bot gọi bằng TÊN không đọc được ảnh (bất đối xứng đa-account):** cổng xử lý ảnh
+  inbound đổi từ `!isGroup || wasMentioned` sang `!isGroup || wasMentioned ||
+  !resolvedRequireMention`. Trước đây chỉ tải/đính ảnh khi bot được **@mention** →
+  bot ở nhóm `requireMention:false` được gọi bằng tên tuy vẫn trả lời nhưng KHÔNG
+  nhận ảnh (vd William được @ thì thấy ảnh, Mkt gọi tên thì không). Khi tin đã qua
+  mention gate (đang dispatch cho agent) thì ảnh của chính tin đó phải được xử lý.
+  Vẫn chỉ dùng media của tin hiện tại (không merge buffer) để tránh ảnh cũ.
+
 ## [3.0.8] — 2026-07-23
 
 ### Sửa lỗi
