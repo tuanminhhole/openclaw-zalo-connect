@@ -3,7 +3,7 @@
   "name": "OpenClaw Zalo Connect",
   "description": "Zalo personal account messaging for OpenClaw via zca-js. Connect your personal Zalo account as a fully-featured AI agent channel with 149 actions.",
   "icon": "https://cdn.simpleicons.org/zalo",
-  "version": "3.0.10",
+  "version": "3.0.11",
   "author": "tuanminhhole",
   "license": "MIT",
   "homepage": "https://github.com/tuanminhhole/openclaw-zalo-connect",
@@ -158,6 +158,12 @@
           "responsePrefix": {
             "type": "string"
           },
+          "nameTriggers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "accounts": {
             "type": "object",
             "properties": {},
@@ -304,6 +310,12 @@
                 },
                 "responsePrefix": {
                   "type": "string"
+                },
+                "nameTriggers": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 }
               },
               "additionalProperties": false
@@ -380,6 +392,10 @@
         "responsePrefix": {
           "label": "Response Prefix",
           "help": "Text prepended to agent responses."
+        },
+        "nameTriggers": {
+          "label": "Name Triggers",
+          "help": "Extra names/aliases that address the bot in groups (besides its Zalo display name). In silent mode, the bot also replies when a message contains one as a word. Accent- and case-insensitive."
         },
         "groups": {
           "label": "Groups",

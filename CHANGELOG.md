@@ -6,7 +6,16 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 ## [Unreleased]
 
-## [3.0.10] — 2026-07-24
+## [3.0.11] — 2026-07-24
+
+### Tính năng
+- **Kích hoạt bằng TÊN (không chỉ @mention) ở chế độ silent:** nhóm yêu cầu mention
+  giờ cũng trả lời khi tin nhắn **nhắc đúng tên bot** — tên Zalo hiển thị của bot (tự
+  lấy lúc login) hoặc alias khai trong `nameTriggers`. Khớp không dấu, không phân biệt
+  hoa/thường, theo từ (alias ngắn không dính vào từ khác). Gate deterministic ở tầng
+  transport → bot **không nói leo** khi không được gọi, không phụ thuộc model nhớ luật.
+  Chế độ free (không yêu cầu mention) và mute không đổi. Config mới: `nameTriggers`
+  (mảng chuỗi) ở cấp channel hoặc từng account.
 
 ### Sửa lỗi
 - **Tin nhắn lặp đôi khi gửi kèm file:** khi agent gắn file (qua tool `message` của

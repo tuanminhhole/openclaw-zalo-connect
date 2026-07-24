@@ -18,6 +18,8 @@ export type ZaloConnectAccountConfig = {
   >;
   messagePrefix?: string;
   responsePrefix?: string;
+  /** Extra name aliases that trigger the bot in groups (besides its Zalo display name). */
+  nameTriggers?: string[];
 };
 
 export type ZaloConnectConfig = {
@@ -41,6 +43,8 @@ export type ZaloConnectConfig = {
   >;
   messagePrefix?: string;
   responsePrefix?: string;
+  /** Extra name aliases that trigger the bot in groups (besides its Zalo display name). */
+  nameTriggers?: string[];
   accounts?: Record<string, ZaloConnectAccountConfig>;
 };
 

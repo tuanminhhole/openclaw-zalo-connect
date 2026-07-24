@@ -20,7 +20,8 @@ import { ThreadType, FriendEventType, Reactions, type API, type Message, type Us
 import type { ResolvedZaloConnectAccount, ZaloConnectFriend, ZaloConnectGroup, ZaloConnectMessage } from "../runtime/types.js";
 import { getZaloConnectRuntime } from "../runtime/runtime.js";
 import { sendMessageZaloConnect } from "./send.js";
-import { getApi, getCurrentUid, getApiSync, invalidateApi } from "../client/zalo-client.js";
+import { getApi, getCurrentUid, getCurrentName, getApiSync, invalidateApi } from "../client/zalo-client.js";
+import { textMentionsAnyName } from "../features/name-trigger.js";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
@@ -857,6 +858,18 @@ async function processMessage(
     ? (message.mentions ?? []).some(m => m.uid === selfUid)
     : false;
 
+  // Name-trigger: a silent-mode (requireMention) bot should also respond when addressed
+  // by NAME — its own Zalo display name or a configured alias — not only by @mention.
+  // This is deterministic (gated here, before the LLM) so it can't "forget" the rule and
+  // never chimes in ("nói leo") on messages that don't address it. In free mode
+  // (requireMention:false) the gate below is skipped entirely, so this has no effect there.
+  const botNameTriggers = [
+    getCurrentName(account.accountId),
+    ...((account.config.nameTriggers ?? []).map((v) => String(v))),
+  ];
+  const wasNamed = isGroup && textMentionsAnyName(rawBody, botNameTriggers);
+  const wasAddressed = wasMentioned || wasNamed;
+
   const runtimePolicy = isGroup
     ? getRuntimeGroupPolicy(account.accountId, chatId)
     : undefined;
@@ -871,7 +884,8 @@ async function processMessage(
       isGroup: true,
       requireMention: true,
       canDetectMention: true,
-      wasMentioned,
+      // Treat a name-trigger as "addressed" too, so the bot answers "@bot" OR "botname ...".
+      wasMentioned: wasAddressed,
       allowTextCommands: true,
       hasControlCommand,
       commandAuthorized: commandAuthorized === true,
@@ -1000,7 +1014,7 @@ async function processMessage(
   // name-triggered bot). Previously this gated on wasMentioned ONLY, so a bot addressed
   // by NAME instead of @mention (requireMention:false) never received the image even
   // though it replied — asymmetric "one bot sees images, the other doesn't".
-  const shouldProcessImages = !isGroup || wasMentioned || !resolvedRequireMention;
+  const shouldProcessImages = !isGroup || wasAddressed || !resolvedRequireMention;
 
   let localMediaPaths: string[] | undefined;
   if (shouldProcessImages && message.mediaUrls && message.mediaUrls.length > 0) {

@@ -71,6 +71,8 @@ const ZaloConnectAccountSchema = z.object({
   messagePrefix: z.string().optional(),
   /** Prefix prepended to agent responses. */
   responsePrefix: z.string().optional(),
+  /** Extra name aliases that trigger the bot in groups (besides its Zalo display name). */
+  nameTriggers: z.array(z.string()).optional(),
   /** Group event handlers: welcome, leave, kick, admin alerts. */
   groupEvents: GroupEventsSchema,
   // passiveCollector intentionally omitted from channel schema
@@ -128,6 +130,13 @@ export const ZaloConnectChannelConfigSchema = buildChannelConfigSchema(
       responsePrefix: {
         label: "Response Prefix",
         help: "Text prepended to agent responses.",
+      },
+      nameTriggers: {
+        label: "Name Triggers",
+        help:
+          "Extra names/aliases that address the bot in groups (besides its Zalo display name). " +
+          "In silent mode (require @mention), the bot also replies when a message contains one of " +
+          'these as a word — e.g. "mei", "mkt". Accent- and case-insensitive.',
       },
       groups: {
         label: "Groups",

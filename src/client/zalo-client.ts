@@ -10,6 +10,8 @@ import { readImageMetadata } from "../media/image-metadata.js";
 
 const apiInstances = new Map<string, API>();
 const currentUids = new Map<string, string>();
+/** Bot's own Zalo display name per account — used for name-trigger gating in groups. */
+const currentNames = new Map<string, string>();
 /** [H2] Promise memoization to prevent concurrent login attempts per account. */
 const loginPromises = new Map<string, Promise<API>>();
 
@@ -47,6 +49,7 @@ export async function loginWithQR(callback?: QrCallback, accountId?: string | nu
     const raw = await api.fetchAccountInfo();
     const info = (raw as any)?.profile ?? raw;
     if (info?.userId) currentUids.set(id, String(info.userId));
+    if (info?.displayName) currentNames.set(id, String(info.displayName));
   } catch {
     // non-critical
   }
@@ -72,6 +75,7 @@ export async function loginWithCredentials(accountId?: string | null): Promise<A
     const raw = await api.fetchAccountInfo();
     const info = (raw as any)?.profile ?? raw;
     if (info?.userId) currentUids.set(id, String(info.userId));
+    if (info?.displayName) currentNames.set(id, String(info.displayName));
   } catch {
     // non-critical
   }
@@ -112,6 +116,11 @@ export function getCurrentUid(accountId?: string | null): string | null {
   return currentUids.get(normalizeAccountId(accountId)) ?? null;
 }
 
+/** Bot's own Zalo display name for this account (if fetched), for name-trigger gating. */
+export function getCurrentName(accountId?: string | null): string | null {
+  return currentNames.get(normalizeAccountId(accountId)) ?? null;
+}
+
 export function isAuthenticated(accountId?: string | null): boolean {
   return apiInstances.has(normalizeAccountId(accountId));
 }
@@ -124,6 +133,7 @@ export async function logout(accountId?: string | null): Promise<void> {
   const id = normalizeAccountId(accountId);
   apiInstances.delete(id);
   currentUids.delete(id);
+  currentNames.delete(id);
   loginPromises.delete(id);
   deleteCredentials(id);
 }
@@ -139,6 +149,7 @@ export function invalidateApi(accountId?: string | null): void {
   const id = normalizeAccountId(accountId);
   apiInstances.delete(id);
   currentUids.delete(id);
+  currentNames.delete(id);
   loginPromises.delete(id);
 }
 

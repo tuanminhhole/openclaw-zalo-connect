@@ -41191,6 +41191,7 @@ __export(zalo_client_exports, {
   ensureAuthenticated: () => ensureAuthenticated,
   getApi: () => getApi,
   getApiSync: () => getApiSync,
+  getCurrentName: () => getCurrentName,
   getCurrentUid: () => getCurrentUid,
   hasStoredCredentials: () => hasStoredCredentials,
   invalidateApi: () => invalidateApi,
@@ -41223,6 +41224,7 @@ async function loginWithQR(callback, accountId) {
     const raw = await api.fetchAccountInfo();
     const info = raw?.profile ?? raw;
     if (info?.userId) currentUids.set(id, String(info.userId));
+    if (info?.displayName) currentNames.set(id, String(info.displayName));
   } catch {
   }
   return api;
@@ -41245,6 +41247,7 @@ async function loginWithCredentials(accountId) {
     const raw = await api.fetchAccountInfo();
     const info = raw?.profile ?? raw;
     if (info?.userId) currentUids.set(id, String(info.userId));
+    if (info?.displayName) currentNames.set(id, String(info.displayName));
   } catch {
   }
   return api;
@@ -41274,6 +41277,9 @@ function getApiSync(accountId) {
 function getCurrentUid(accountId) {
   return currentUids.get(normalizeAccountId2(accountId)) ?? null;
 }
+function getCurrentName(accountId) {
+  return currentNames.get(normalizeAccountId2(accountId)) ?? null;
+}
 function isAuthenticated(accountId) {
   return apiInstances.has(normalizeAccountId2(accountId));
 }
@@ -41284,6 +41290,7 @@ async function logout(accountId) {
   const id = normalizeAccountId2(accountId);
   apiInstances.delete(id);
   currentUids.delete(id);
+  currentNames.delete(id);
   loginPromises.delete(id);
   deleteCredentials(id);
 }
@@ -41291,12 +41298,13 @@ function invalidateApi(accountId) {
   const id = normalizeAccountId2(accountId);
   apiInstances.delete(id);
   currentUids.delete(id);
+  currentNames.delete(id);
   loginPromises.delete(id);
 }
 async function ensureAuthenticated(accountId) {
   return getApi(accountId);
 }
-var apiInstances, currentUids, loginPromises;
+var apiInstances, currentUids, currentNames, loginPromises;
 var init_zalo_client = __esm({
   "src/client/zalo-client.ts"() {
     "use strict";
@@ -41305,6 +41313,7 @@ var init_zalo_client = __esm({
     init_image_metadata();
     apiInstances = /* @__PURE__ */ new Map();
     currentUids = /* @__PURE__ */ new Map();
+    currentNames = /* @__PURE__ */ new Map();
     loginPromises = /* @__PURE__ */ new Map();
   }
 });
@@ -54988,6 +54997,33 @@ var init_runtime = __esm({
   }
 });
 
+// src/features/name-trigger.ts
+function stripAccents(input) {
+  return input.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D");
+}
+function normalize2(input) {
+  return stripAccents(String(input || "")).toLowerCase().trim();
+}
+function escapeRegExp(input) {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function textMentionsAnyName(text, names) {
+  const hay = normalize2(text);
+  if (!hay) return false;
+  for (const raw of names) {
+    const n = normalize2(String(raw ?? ""));
+    if (n.length < 2) continue;
+    const re = new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(n)}([^\\p{L}\\p{N}]|$)`, "u");
+    if (re.test(hay)) return true;
+  }
+  return false;
+}
+var init_name_trigger = __esm({
+  "src/features/name-trigger.ts"() {
+    "use strict";
+  }
+});
+
 // src/safety/url-validator.ts
 import { URL as URL2 } from "node:url";
 import * as dns from "node:dns/promises";
@@ -62709,6 +62745,12 @@ ${effectiveContent}`;
   }
   const selfUid = getCurrentUid(account.accountId) ?? (await getApi(account.accountId)).getOwnId();
   const wasMentioned = isGroup && selfUid ? (message.mentions ?? []).some((m) => m.uid === selfUid) : false;
+  const botNameTriggers = [
+    getCurrentName(account.accountId),
+    ...(account.config.nameTriggers ?? []).map((v) => String(v))
+  ];
+  const wasNamed = isGroup && textMentionsAnyName(rawBody, botNameTriggers);
+  const wasAddressed = wasMentioned || wasNamed;
   const runtimePolicy = isGroup ? getRuntimeGroupPolicy(account.accountId, chatId) : void 0;
   const resolvedRequireMention = isGroup ? runtimePolicy?.requireMention ?? resolveGroupMentionSetting(account, chatId) : false;
   const hasControlCommand = core.channel.commands.isControlCommandMessage(rawBody, config2);
@@ -62717,7 +62759,8 @@ ${effectiveContent}`;
       isGroup: true,
       requireMention: true,
       canDetectMention: true,
-      wasMentioned,
+      // Treat a name-trigger as "addressed" too, so the bot answers "@bot" OR "botname ...".
+      wasMentioned: wasAddressed,
       allowTextCommands: true,
       hasControlCommand,
       commandAuthorized: commandAuthorized === true
@@ -62822,7 +62865,7 @@ ${bodyWithSender}`;
       }
     }
   }
-  const shouldProcessImages = !isGroup || wasMentioned || !resolvedRequireMention;
+  const shouldProcessImages = !isGroup || wasAddressed || !resolvedRequireMention;
   let localMediaPaths;
   if (shouldProcessImages && message.mediaUrls && message.mediaUrls.length > 0) {
     console.log(`[zalo-connect] Downloading ${message.mediaUrls.length} attachment(s) for native support...`);
@@ -63637,6 +63680,7 @@ var init_monitor = __esm({
     init_runtime();
     init_send();
     init_zalo_client();
+    init_name_trigger();
     init_image_metadata();
     init_image_downloader();
     init_file_downloader();
@@ -78316,6 +78360,8 @@ var ZaloConnectAccountSchema = external_exports.object({
   messagePrefix: external_exports.string().optional(),
   /** Prefix prepended to agent responses. */
   responsePrefix: external_exports.string().optional(),
+  /** Extra name aliases that trigger the bot in groups (besides its Zalo display name). */
+  nameTriggers: external_exports.array(external_exports.string()).optional(),
   /** Group event handlers: welcome, leave, kick, admin alerts. */
   groupEvents: GroupEventsSchema
   // passiveCollector intentionally omitted from channel schema
@@ -78358,6 +78404,10 @@ var ZaloConnectChannelConfigSchema = buildChannelConfigSchema(
       responsePrefix: {
         label: "Response Prefix",
         help: "Text prepended to agent responses."
+      },
+      nameTriggers: {
+        label: "Name Triggers",
+        help: 'Extra names/aliases that address the bot in groups (besides its Zalo display name). In silent mode (require @mention), the bot also replies when a message contains one of these as a word \u2014 e.g. "mei", "mkt". Accent- and case-insensitive.'
       },
       groups: {
         label: "Groups",
