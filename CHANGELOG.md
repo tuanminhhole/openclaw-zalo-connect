@@ -6,6 +6,17 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 ## [Unreleased]
 
+## [3.0.12] — 2026-07-24
+
+### Sửa lỗi
+- **Bot "ngủm" sau thời gian idle (mất kết nối, gọi không lên).** Watchdog ping/pong
+  chỉ reconnect khi mất pong / socket đóng — nhưng Zalo có thể **giữ socket mở + vẫn trả
+  lời ping/gửi typing mà NGỪNG đẩy tin** sau idle → bot "khỏe giả", không hồi tới khi
+  restart. Thêm **hard refresh định kỳ 25 phút** (tự dựng lại phiên bất kể trạng thái →
+  làm tươi session/cookie, chặn mọi kiểu chết-âm-thầm) + **refresh nhanh khi không có
+  frame nào trong 8 phút**. Kèm log health định kỳ (readyState/pongAge/frameAge) để chẩn
+  đoán về sau.
+
 ## [3.0.11] — 2026-07-24
 
 ### Tính năng

@@ -63182,6 +63182,10 @@ async function monitorZaloConnectProvider(options) {
   let pongSeen = false;
   const HEALTHCHECK_INTERVAL_MS = 2e4;
   const PONG_TIMEOUT_MS = 6e4;
+  const STALE_ACTIVITY_MS = 8 * 60 * 1e3;
+  const HARD_REFRESH_MS = 25 * 60 * 1e3;
+  const HEALTH_LOG_MS = 5 * 60 * 1e3;
+  let lastHealthLogAt = Date.now();
   const RECONNECT_BASE_MS = 4e3;
   const RECONNECT_MAX_MS = 6e4;
   try {
@@ -63610,10 +63614,17 @@ async function monitorZaloConnectProvider(options) {
         clearInterval(watchdogTimer);
         watchdogTimer = null;
       }
+      const connectionStartedAt = Date.now();
+      lastHealthLogAt = Date.now();
       watchdogTimer = setInterval(() => {
         if (stopped || abortSignal.aborted || reconnecting) return;
         const w = api.listener?.ws;
         const readyState = w?.readyState;
+        const now = Date.now();
+        if (now - lastHealthLogAt > HEALTH_LOG_MS) {
+          lastHealthLogAt = now;
+          runtime2.log?.(`[${account.accountId}] health: readyState=${readyState} pongAge=${Math.round((now - lastPongAt) / 1e3)}s frameAge=${Math.round((now - lastListenerEventAt) / 1e3)}s pongSeen=${pongSeen} connAge=${Math.round((now - connectionStartedAt) / 6e4)}m`);
+        }
         if (readyState === 2 || readyState === 3) {
           scheduleReconnect(`ws ${readyState === 2 ? "closing" : "closed"} without close event`);
           return;
@@ -63623,9 +63634,17 @@ async function monitorZaloConnectProvider(options) {
             w?.ping?.();
           } catch {
           }
-          if (pongSeen && Date.now() - lastPongAt > PONG_TIMEOUT_MS) {
-            scheduleReconnect(`no pong for ${Math.round((Date.now() - lastPongAt) / 1e3)}s (socket starved)`);
+          if (pongSeen && now - lastPongAt > PONG_TIMEOUT_MS) {
+            scheduleReconnect(`no pong for ${Math.round((now - lastPongAt) / 1e3)}s (socket starved)`);
+            return;
           }
+        }
+        if (now - connectionStartedAt > HARD_REFRESH_MS) {
+          scheduleReconnect(`periodic session refresh (${Math.round((now - connectionStartedAt) / 6e4)}m)`);
+          return;
+        }
+        if (now - lastListenerEventAt > STALE_ACTIVITY_MS) {
+          scheduleReconnect(`no inbound for ${Math.round((now - lastListenerEventAt) / 6e4)}m (proactive session refresh)`);
         }
       }, HEALTHCHECK_INTERVAL_MS);
       watchdogTimer.unref?.();

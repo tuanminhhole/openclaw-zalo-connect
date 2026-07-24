@@ -1400,6 +1400,19 @@ export async function monitorZaloConnectProvider(
   let pongSeen = false;
   const HEALTHCHECK_INTERVAL_MS = 20_000;
   const PONG_TIMEOUT_MS = 60_000;
+  // Proactively rebuild the session after this long with NO inbound ws frame. Zalo can
+  // keep a socket open (even answering pings) yet quietly stop delivering messages after
+  // idle — or drop it without a clean close — leaving the bot "dead until restart". A
+  // fresh session re-subscribes so Zalo resumes pushing; harmless when genuinely idle.
+  const STALE_ACTIVITY_MS = 8 * 60 * 1000;
+  // Hard safety net: rebuild the session at least this often REGARDLESS of activity, so a
+  // socket that stays "healthy" (pongs + typing/seen frames) while Zalo silently stopped
+  // delivering messages — which the frame-based checks above can't see — still recovers,
+  // and cookies/session stay fresh. This is what keeps it alive like the official plugin.
+  const HARD_REFRESH_MS = 25 * 60 * 1000;
+  // Periodic health snapshot to logs, so a real idle-death can be diagnosed after the fact.
+  const HEALTH_LOG_MS = 5 * 60 * 1000;
+  let lastHealthLogAt = Date.now();
   const RECONNECT_BASE_MS = 4_000;
   const RECONNECT_MAX_MS = 60_000;
 
@@ -1838,10 +1851,18 @@ export async function monitorZaloConnectProvider(
       } catch {}
 
       if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null; }
+      const connectionStartedAt = Date.now();
+      lastHealthLogAt = Date.now();
       watchdogTimer = setInterval(() => {
         if (stopped || abortSignal.aborted || reconnecting) return;
         const w = (api.listener as unknown as { ws?: RawWs })?.ws;
         const readyState = w?.readyState;
+        const now = Date.now();
+        // [diag] periodic health snapshot so a real idle-death can be diagnosed after the fact.
+        if (now - lastHealthLogAt > HEALTH_LOG_MS) {
+          lastHealthLogAt = now;
+          runtime.log?.(`[${account.accountId}] health: readyState=${readyState} pongAge=${Math.round((now - lastPongAt) / 1000)}s frameAge=${Math.round((now - lastListenerEventAt) / 1000)}s pongSeen=${pongSeen} connAge=${Math.round((now - connectionStartedAt) / 60000)}m`);
+        }
         // Confirmed dead socket that didn't fire "closed" → reconnect.
         if (readyState === 2 || readyState === 3) {
           scheduleReconnect(`ws ${readyState === 2 ? "closing" : "closed"} without close event`);
@@ -1851,9 +1872,22 @@ export async function monitorZaloConnectProvider(
           // Actively probe the socket. A healthy socket answers even when the group is
           // idle (so we never false-fire on quiet); a Zalo-starved socket stops answering.
           try { w?.ping?.(); } catch {}
-          if (pongSeen && Date.now() - lastPongAt > PONG_TIMEOUT_MS) {
-            scheduleReconnect(`no pong for ${Math.round((Date.now() - lastPongAt) / 1000)}s (socket starved)`);
+          if (pongSeen && now - lastPongAt > PONG_TIMEOUT_MS) {
+            scheduleReconnect(`no pong for ${Math.round((now - lastPongAt) / 1000)}s (socket starved)`);
+            return;
           }
+        }
+        // Hard safety net: rebuild at least every HARD_REFRESH_MS regardless of state, so a
+        // "healthy but message-starved" socket (Zalo stopped delivering while pongs/typing
+        // still flow) always recovers and the session/cookie stays fresh.
+        if (now - connectionStartedAt > HARD_REFRESH_MS) {
+          scheduleReconnect(`periodic session refresh (${Math.round((now - connectionStartedAt) / 60000)}m)`);
+          return;
+        }
+        // Faster path: no inbound ws frame for a long time → likely dead/starved. Rebuild a
+        // fresh session (re-subscribes; also covers a socket that never ponged).
+        if (now - lastListenerEventAt > STALE_ACTIVITY_MS) {
+          scheduleReconnect(`no inbound for ${Math.round((now - lastListenerEventAt) / 60000)}m (proactive session refresh)`);
         }
       }, HEALTHCHECK_INTERVAL_MS);
       watchdogTimer.unref?.();
