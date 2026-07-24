@@ -6,6 +6,17 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 ## [Unreleased]
 
+## [3.0.13] — 2026-07-25
+
+### Sửa lỗi
+- **Không lộ "suy nghĩ"/log chạy tool ra kênh.** Khi model xuất ra một dòng trace
+  thực thi tool làm câu trả lời (vd `⚠️ 🛠️ Exec failed: run python3 … → … (agent)`),
+  nó bị lọt xuống Zalo. OpenClaw KHÔNG gắn cờ tool-progress cho payload này nên không
+  chặn theo cờ được → thêm lọc theo NỘI DUNG: câu trả lời có dạng tool-trace (biểu tượng
+  🛠️ + đuôi `(agent)`/`(you)`, hoặc mở đầu `Exec/Tool/Command/Run … failed/error`) sẽ
+  **không gửi ra kênh** (vẫn hiện trên gateway/dashboard). Cũng bỏ qua payload có cờ
+  `isReasoning`/`isReasoningSnapshot`/`isStatusNotice`/`toolProgress` cho chắc.
+
 ## [3.0.12] — 2026-07-24
 
 ### Sửa lỗi

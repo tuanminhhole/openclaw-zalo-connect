@@ -1182,7 +1182,7 @@ async function processMessage(
         ...prefixOptions,
         deliver: async (payload) => {
           const sentVisible = await deliverZaloConnectReply({
-            payload: payload as { text?: string; mediaUrls?: string[]; mediaUrl?: string; isReasoning?: boolean },
+            payload: payload as { text?: string; mediaUrls?: string[]; mediaUrl?: string; isReasoning?: boolean; isReasoningSnapshot?: boolean; isStatusNotice?: boolean; toolProgress?: boolean },
             chatId,
             isGroup,
             runtime,
@@ -1266,8 +1266,27 @@ function stripThinkingTags(text: string): string {
   return text.replace(/<(?:think|thinking|thought|antthinking)\b[^>]*>[\s\S]*?<\/(?:think|thinking|thought|antthinking)>/gi, "").trim();
 }
 
+// Tool-execution trace / preamble the model sometimes emits as its reply, e.g.
+// "🛠️ Exec failed: run python3 … → run file … → list files … (agent)". OpenClaw does
+// NOT flag these as tool-progress on the payload, so they leak to the channel. Detect the
+// tool-trace shape (wrench emoji + the "(agent)/(you)" attribution suffix, or an
+// "Exec/Tool … failed/ok" opener) so we can keep it off Zalo/Telegram (it still shows on
+// the gateway, which renders the agent session directly).
+function isToolTraceMessage(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  const hasWrench = /🛠️/.test(t);
+  const agentSuffix = /\((?:agent|you)\)\s*$/i.test(t);
+  const execOpener = /^\s*(?:@\S+\s+)?(?:⚠️\s*)?🛠️\s*(?:exec|tool|command|run)\b/i.test(t);
+  const failedOpener = /^\s*(?:@\S+\s+)?(?:⚠️\s*)?🛠️.*\b(?:failed|error)\b/i.test(t);
+  return (hasWrench && agentSuffix) || execOpener || failedOpener;
+}
+
+/** Exported for testing only. */
+export { isToolTraceMessage as _isToolTraceMessage };
+
 async function deliverZaloConnectReply(params: {
-  payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string; isReasoning?: boolean };
+  payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string; isReasoning?: boolean; isReasoningSnapshot?: boolean; isStatusNotice?: boolean; toolProgress?: boolean };
   chatId: string;
   isGroup: boolean;
   runtime: RuntimeEnv;
@@ -1281,8 +1300,12 @@ async function deliverZaloConnectReply(params: {
 }): Promise<boolean> {
   const { payload, chatId, isGroup, runtime, core, config, accountId, statusSink } = params;
 
-  if (payload.isReasoning) {
-    logVerbose(core, runtime, `Skipping reasoning block for ${chatId}`);
+  // Never leak internal reasoning, reasoning snapshots, tool-progress or status notices
+  // to the Zalo channel — these are the model's "thinking" and the running tool trace
+  // (e.g. "🛠️ Exec failed: run python3 → …"). They still show on the gateway/dashboard,
+  // which renders the agent session directly; the channel gets only the final answer.
+  if (payload.isReasoning || payload.isReasoningSnapshot || payload.isStatusNotice || payload.toolProgress) {
+    logVerbose(core, runtime, `Skipping non-final payload (reasoning/tool-progress/status) for ${chatId}`);
     return false;
   }
 
@@ -1291,6 +1314,10 @@ async function deliverZaloConnectReply(params: {
 
   if (text && isReasoningOnlyMessage(text)) {
     logVerbose(core, runtime, `Skipping reasoning-only message for ${chatId}`);
+    return false;
+  }
+  if (text && isToolTraceMessage(text)) {
+    logVerbose(core, runtime, `Skipping tool-trace/preamble reply for ${chatId} (kept off channel)`);
     return false;
   }
   text = stripThinkingTags(text);

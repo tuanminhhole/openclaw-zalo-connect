@@ -62145,6 +62145,7 @@ __export(monitor_exports, {
   _filterAttachableMediaPaths: () => filterAttachableMediaPaths,
   _isDuplicateMsg: () => isDuplicateMsg,
   _isSystemNotificationContent: () => isSystemNotificationContent,
+  _isToolTraceMessage: () => isToolTraceMessage,
   _processedMsgIds: () => processedMsgIds,
   monitorZaloConnectProvider: () => monitorZaloConnectProvider
 });
@@ -63094,16 +63095,29 @@ function isReasoningOnlyMessage(text) {
 function stripThinkingTags(text) {
   return text.replace(/<(?:think|thinking|thought|antthinking)\b[^>]*>[\s\S]*?<\/(?:think|thinking|thought|antthinking)>/gi, "").trim();
 }
+function isToolTraceMessage(text) {
+  const t = text.trim();
+  if (!t) return false;
+  const hasWrench = /🛠️/.test(t);
+  const agentSuffix = /\((?:agent|you)\)\s*$/i.test(t);
+  const execOpener = /^\s*(?:@\S+\s+)?(?:⚠️\s*)?🛠️\s*(?:exec|tool|command|run)\b/i.test(t);
+  const failedOpener = /^\s*(?:@\S+\s+)?(?:⚠️\s*)?🛠️.*\b(?:failed|error)\b/i.test(t);
+  return hasWrench && agentSuffix || execOpener || failedOpener;
+}
 async function deliverZaloConnectReply(params) {
   const { payload, chatId, isGroup, runtime: runtime2, core, config: config2, accountId, statusSink } = params;
-  if (payload.isReasoning) {
-    logVerbose(core, runtime2, `Skipping reasoning block for ${chatId}`);
+  if (payload.isReasoning || payload.isReasoningSnapshot || payload.isStatusNotice || payload.toolProgress) {
+    logVerbose(core, runtime2, `Skipping non-final payload (reasoning/tool-progress/status) for ${chatId}`);
     return false;
   }
   const tableMode = params.tableMode ?? "code";
   let text = core.channel.text.convertMarkdownTables(payload.text ?? "", tableMode);
   if (text && isReasoningOnlyMessage(text)) {
     logVerbose(core, runtime2, `Skipping reasoning-only message for ${chatId}`);
+    return false;
+  }
+  if (text && isToolTraceMessage(text)) {
+    logVerbose(core, runtime2, `Skipping tool-trace/preamble reply for ${chatId} (kept off channel)`);
     return false;
   }
   text = stripThinkingTags(text);
