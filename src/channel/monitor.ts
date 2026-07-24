@@ -34,6 +34,7 @@ import { collectGroupMessage } from "../features/passive-collector.js";
 import { checkInjection } from "../features/injection-guard.js";
 import { recordMsgId, lookupCliMsgId } from "../features/msg-id-store.js";
 import { trackOutboundMessage } from "../features/auto-unsend.js";
+import { wasRecentlyToolSent } from "../features/recent-tool-text.js";
 import { recordGroupId } from "../features/group-id-cache.js";
 import { refreshCredentials } from "../client/credentials.js";
 import { ThreadMessageQueue, type ThreadQueueEntry } from "./thread-queue.js";
@@ -1279,6 +1280,16 @@ async function deliverZaloConnectReply(params: {
     return false;
   }
   text = stripThinkingTags(text);
+
+  // De-dupe against a caption just sent via the send-file/send-image tool: when the
+  // agent attaches a file AND repeats the same text as its turn reply, the tool sends
+  // it once (no mention) and the reply pipeline would send it again (with mention).
+  // Skip the reply copy so the user sees the file+caption only once.
+  const replyHasOwnMedia = !!(payload.mediaUrls?.length || payload.mediaUrl);
+  if (text && !replyHasOwnMedia && wasRecentlyToolSent(chatId, text)) {
+    logVerbose(core, runtime, `Skipping reply text duplicated by a tool-sent caption in ${chatId}`);
+    return false;
+  }
 
   let nativeReplyMention: { uid: string; pos: number; len: number } | undefined;
   if (isGroup && text && params.replyMention?.uid) {

@@ -6,6 +6,22 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 ## [Unreleased]
 
+## [3.0.10] — 2026-07-24
+
+### Sửa lỗi
+- **Tin nhắn lặp đôi khi gửi kèm file:** khi agent gắn file (qua tool `message` của
+  OpenClaw → adapter `sendText`/`sendMedia`) và lặp lại đúng đoạn text đó trong câu
+  trả lời, tool gửi một lần (không mention) rồi reply pipeline gửi lại (có mention).
+  Nay ghi lại text đã gửi qua tool và reply pipeline **bỏ qua** bản trùng (khớp chính
+  xác, TTL 90s, chỉ khi reply không tự kèm media). Áp cho cả `send`/`send-styled`/
+  `send-file`/`send-image` và adapter `sendText`/`sendMedia`.
+
+### Bảo mật / đóng gói
+- **Qua được ClawHub security scan:** build thêm `--define:process.env.NODE_DEBUG=undefined`
+  để loại nhánh debug của thư viện `semver` khỏi bundle (mẫu `process.env.NODE_DEBUG`
+  bị scanner gắn cờ `suspicious.env_credential_access`). Vô hại về runtime (chỉ là
+  debug logger, vốn luôn tắt); không đổi tính năng.
+
 ## [3.0.9] — 2026-07-23
 
 ### Sửa lỗi

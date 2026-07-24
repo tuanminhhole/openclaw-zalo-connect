@@ -23,15 +23,21 @@ import {
 import { getApi as getAccountApi, getCurrentUid } from "../client/zalo-client.js";
 import { lookupCliMsgId } from "../features/msg-id-store.js";
 import { getLastOutbound, trackOutboundMessage } from "../features/auto-unsend.js";
+import { recordToolSentText } from "../features/recent-tool-text.js";
 import { isKnownGroupId } from "../features/group-id-cache.js";
 
 // Track a tool-sent message so the agent can later recall it with `undo-message {threadId}`
 // (no msgId). CRITICAL for moderated bots (zalo-mod) whose replies go through the bridge → this
 // tool (raw api.sendMessage), NOT the channel's sendMessageZaloConnect wrapper. Handles both
 // sendMessage ({message:{msgId,cliMsgId}}) and sendLink ({msgId,cliMsgId}) result shapes.
-function trackToolSend(threadId: unknown, res: any): void {
+function trackToolSend(threadId: unknown, res: any, captionText?: unknown): void {
   try {
     const t = threadId != null ? String(threadId).trim() : "";
+    // Remember any caption sent WITH a file/image so the native reply pipeline can
+    // skip an identical follow-up text (avoids the "file + same text again" double).
+    if (t && typeof captionText === "string" && captionText.trim()) {
+      recordToolSentText(t, captionText);
+    }
     const msgId = res?.message?.msgId ?? res?.msgId;
     if (!t || msgId == null) return;
     const cliMsgId = res?.message?.cliMsgId ?? res?.cliMsgId;
@@ -518,7 +524,7 @@ async function dispatch(p: Params): Promise<ToolResult> {
       if (p.urgency !== undefined) content.urgency = p.urgency as Urgency;
       if (p.messageTtl !== undefined) content.ttl = p.messageTtl;
       const res = await a.sendMessage(content, p.threadId, type);
-      trackToolSend(p.threadId, res);
+      trackToolSend(p.threadId, res, p.message);
       const msgId = res?.message?.msgId;
       if (!msgId) {
         return ok({ success: false, error: "send failed: no msgId returned (likely rate-limited or silently dropped)", raw: res, mentionsResolved: sendMentions.length });
@@ -550,7 +556,7 @@ async function dispatch(p: Params): Promise<ToolResult> {
       if (p.urgency !== undefined) content.urgency = p.urgency as Urgency;
       if (p.messageTtl !== undefined) content.ttl = p.messageTtl;
       const res = await a.sendMessage(content, p.threadId, type);
-      trackToolSend(p.threadId, res);
+      trackToolSend(p.threadId, res, p.message);
       const styledMsgId = res?.message?.msgId;
       if (!styledMsgId) {
         return ok({ success: false, error: "send-styled failed: no msgId returned (likely rate-limited or silently dropped)", raw: res, stylesApplied: styles?.length ?? 0, mentionsResolved: styledMentions.length });
@@ -588,7 +594,7 @@ async function dispatch(p: Params): Promise<ToolResult> {
             { msg: p.message || "", attachments: [resolvedTmpPath] },
             p.threadId, type,
           );
-          trackToolSend(p.threadId, res);
+          trackToolSend(p.threadId, res, p.message);
           return ok({ success: true, msgId: res?.message?.msgId });
         } finally {
           try { nodeFs.unlinkSync(resolvedTmpPath); } catch {}
@@ -601,7 +607,7 @@ async function dispatch(p: Params): Promise<ToolResult> {
         { msg: p.message || "", attachments: [validatedPath] },
         p.threadId, type,
       );
-      trackToolSend(p.threadId, res);
+      trackToolSend(p.threadId, res, p.message);
       return ok({ success: true, msgId: res?.message?.msgId });
     }
 
@@ -633,7 +639,7 @@ async function dispatch(p: Params): Promise<ToolResult> {
         { msg: p.message || "", attachments: [resolvedPath] },
         p.threadId, type,
       );
-      trackToolSend(p.threadId, res);
+      trackToolSend(p.threadId, res, p.message);
       // Cleanup temp file if downloaded from URL
       if (/^https?:\/\//i.test(localFile) && resolvedPath !== localFile) {
         try { nodeFs.unlinkSync(resolvedPath); } catch {}

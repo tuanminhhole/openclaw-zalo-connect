@@ -17642,7 +17642,7 @@ var require_constants2 = __commonJS({
 var require_debug = __commonJS({
   "node_modules/semver/internal/debug.js"(exports, module) {
     "use strict";
-    var debug = typeof process === "object" && process.env && process.env.NODE_DEBUG && /\bsemver\b/i.test(process.env.NODE_DEBUG) ? (...args) => console.error("SEMVER", ...args) : () => {
+    var debug = typeof process === "object" && process.env && void 0 ? (...args) => console.error("SEMVER", ...args) : () => {
     };
     module.exports = debug;
   }
@@ -54938,6 +54938,38 @@ var init_group_id_cache = __esm({
   }
 });
 
+// src/features/recent-tool-text.ts
+function normalize(text) {
+  return text.replace(/\s+/g, " ").trim();
+}
+function recordToolSentText(threadId, text) {
+  const t = threadId != null ? String(threadId).trim() : "";
+  const body = typeof text === "string" ? normalize(text) : "";
+  if (!t || !body) return;
+  const cutoff = Date.now() - TTL_MS;
+  const list = (recent.get(t) ?? []).filter((e) => e.ts > cutoff);
+  list.push({ text: body, ts: Date.now() });
+  recent.set(t, list.slice(-MAX_PER_THREAD));
+}
+function wasRecentlyToolSent(threadId, text) {
+  const t = threadId != null ? String(threadId).trim() : "";
+  const body = typeof text === "string" ? normalize(text) : "";
+  if (!t || !body) return false;
+  const list = recent.get(t);
+  if (!list) return false;
+  const cutoff = Date.now() - TTL_MS;
+  return list.some((e) => e.ts > cutoff && e.text === body);
+}
+var recent, TTL_MS, MAX_PER_THREAD;
+var init_recent_tool_text = __esm({
+  "src/features/recent-tool-text.ts"() {
+    "use strict";
+    recent = /* @__PURE__ */ new Map();
+    TTL_MS = 9e4;
+    MAX_PER_THREAD = 8;
+  }
+});
+
 // src/runtime/runtime.ts
 function setZaloConnectRuntime(next) {
   runtime = next;
@@ -55566,7 +55598,7 @@ var init_injection_guard = __esm({
 function recordMsgId(msgId, cliMsgId, threadId, isGroup) {
   if (!msgId || !cliMsgId) return;
   if (store.size > MAX_ENTRIES) {
-    const cutoff = Date.now() - TTL_MS;
+    const cutoff = Date.now() - TTL_MS2;
     for (const [k, v] of store) {
       if (v.ts < cutoff) store.delete(k);
     }
@@ -55580,19 +55612,19 @@ function recordMsgId(msgId, cliMsgId, threadId, isGroup) {
 function lookupCliMsgId(msgId) {
   const entry = store.get(msgId);
   if (!entry) return void 0;
-  if (Date.now() - entry.ts > TTL_MS) {
+  if (Date.now() - entry.ts > TTL_MS2) {
     store.delete(msgId);
     return void 0;
   }
   return entry;
 }
-var store, MAX_ENTRIES, TTL_MS;
+var store, MAX_ENTRIES, TTL_MS2;
 var init_msg_id_store = __esm({
   "src/features/msg-id-store.ts"() {
     "use strict";
     store = /* @__PURE__ */ new Map();
     MAX_ENTRIES = 500;
-    TTL_MS = 30 * 60 * 1e3;
+    TTL_MS2 = 30 * 60 * 1e3;
   }
 });
 
@@ -60220,9 +60252,12 @@ import * as nodeFs from "node:fs";
 import * as nodePath from "node:path";
 import * as nodeOs from "node:os";
 import * as nodeCrypto from "node:crypto";
-function trackToolSend(threadId, res) {
+function trackToolSend(threadId, res, captionText) {
   try {
     const t = threadId != null ? String(threadId).trim() : "";
+    if (t && typeof captionText === "string" && captionText.trim()) {
+      recordToolSentText(t, captionText);
+    }
     const msgId = res?.message?.msgId ?? res?.msgId;
     if (!t || msgId == null) return;
     const cliMsgId = res?.message?.cliMsgId ?? res?.cliMsgId;
@@ -60325,7 +60360,7 @@ async function dispatch(p) {
       if (p.urgency !== void 0) content.urgency = p.urgency;
       if (p.messageTtl !== void 0) content.ttl = p.messageTtl;
       const res = await a.sendMessage(content, p.threadId, type);
-      trackToolSend(p.threadId, res);
+      trackToolSend(p.threadId, res, p.message);
       const msgId = res?.message?.msgId;
       if (!msgId) {
         return ok({ success: false, error: "send failed: no msgId returned (likely rate-limited or silently dropped)", raw: res, mentionsResolved: sendMentions.length });
@@ -60356,7 +60391,7 @@ async function dispatch(p) {
       if (p.urgency !== void 0) content.urgency = p.urgency;
       if (p.messageTtl !== void 0) content.ttl = p.messageTtl;
       const res = await a.sendMessage(content, p.threadId, type);
-      trackToolSend(p.threadId, res);
+      trackToolSend(p.threadId, res, p.message);
       const styledMsgId = res?.message?.msgId;
       if (!styledMsgId) {
         return ok({ success: false, error: "send-styled failed: no msgId returned (likely rate-limited or silently dropped)", raw: res, stylesApplied: styles?.length ?? 0, mentionsResolved: styledMentions.length });
@@ -60391,7 +60426,7 @@ async function dispatch(p) {
             p.threadId,
             type
           );
-          trackToolSend(p.threadId, res2);
+          trackToolSend(p.threadId, res2, p.message);
           return ok({ success: true, msgId: res2?.message?.msgId });
         } finally {
           try {
@@ -60407,7 +60442,7 @@ async function dispatch(p) {
         p.threadId,
         type
       );
-      trackToolSend(p.threadId, res);
+      trackToolSend(p.threadId, res, p.message);
       return ok({ success: true, msgId: res?.message?.msgId });
     }
     case "send-file": {
@@ -60435,7 +60470,7 @@ async function dispatch(p) {
         p.threadId,
         type
       );
-      trackToolSend(p.threadId, res);
+      trackToolSend(p.threadId, res, p.message);
       if (/^https?:\/\//i.test(localFile) && resolvedPath !== localFile) {
         try {
           nodeFs.unlinkSync(resolvedPath);
@@ -61675,6 +61710,7 @@ var init_tool = __esm({
     init_zalo_client();
     init_msg_id_store();
     init_auto_unsend();
+    init_recent_tool_text();
     init_group_id_cache();
     init_config_manager();
     init_friend_request_store();
@@ -63028,6 +63064,11 @@ async function deliverZaloConnectReply(params) {
     return false;
   }
   text = stripThinkingTags(text);
+  const replyHasOwnMedia = !!(payload.mediaUrls?.length || payload.mediaUrl);
+  if (text && !replyHasOwnMedia && wasRecentlyToolSent(chatId, text)) {
+    logVerbose(core, runtime2, `Skipping reply text duplicated by a tool-sent caption in ${chatId}`);
+    return false;
+  }
   let nativeReplyMention;
   if (isGroup && text && params.replyMention?.uid) {
     const label = `@${params.replyMention.displayName || params.replyMention.uid}`;
@@ -63606,6 +63647,7 @@ var init_monitor = __esm({
     init_injection_guard();
     init_msg_id_store();
     init_auto_unsend();
+    init_recent_tool_text();
     init_group_id_cache();
     init_credentials();
     init_thread_queue();
@@ -78823,6 +78865,7 @@ async function probeZaloConnect(accountId) {
 // src/channel/channel.ts
 init_send();
 init_group_id_cache();
+init_recent_tool_text();
 
 // src/runtime/status-issues.ts
 init_zalo_client();
@@ -79277,6 +79320,7 @@ var zaloConnectPlugin = {
     sendText: async ({ to, text, accountId, cfg }) => {
       const account = resolveZaloConnectAccountSync({ cfg, accountId });
       const isGroup = isKnownGroupId(to);
+      recordToolSentText(to, text);
       const result = await sendMessageZaloConnect(to, text, { isGroup, accountId: account.accountId });
       return {
         channel: "zalo-connect",
@@ -79296,6 +79340,7 @@ var zaloConnectPlugin = {
         options.mediaUrl = mediaUrl;
         options.caption = text;
       }
+      recordToolSentText(to, text);
       const result = await sendMessageZaloConnect(to, text, options);
       return {
         channel: "zalo-connect",

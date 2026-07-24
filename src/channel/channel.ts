@@ -30,6 +30,7 @@ import { zaloConnectOnboardingAdapter } from "./onboarding.js";
 import { probeZaloConnect } from "./probe.js";
 import { sendMessageZaloConnect, isLocalFilePath } from "./send.js";
 import { isKnownGroupId } from "../features/group-id-cache.js";
+import { recordToolSentText } from "../features/recent-tool-text.js";
 import { collectZaloConnectStatusIssues } from "../runtime/status-issues.js";
 import { hasStoredCredentials, loginWithQR } from "../client/zalo-client.js";
 import { LoginQRCallbackEventType } from "zca-js";
@@ -498,6 +499,9 @@ export const zaloConnectPlugin: ChannelPlugin<ResolvedZaloConnectAccount> = {
     sendText: async ({ to, text, accountId, cfg }) => {
       const account = resolveZaloConnectAccountSync({ cfg, accountId });
       const isGroup = isKnownGroupId(to);
+      // Remember programmatic/self-sends (OpenClaw `message` tool) so the native reply
+      // pipeline can skip an identical follow-up (avoids the double: self-send + reply).
+      recordToolSentText(to, text);
       const result = await sendMessageZaloConnect(to, text, { isGroup, accountId: account.accountId });
       return {
         channel: "zalo-connect",
@@ -517,6 +521,8 @@ export const zaloConnectPlugin: ChannelPlugin<ResolvedZaloConnectAccount> = {
         options.mediaUrl = mediaUrl;
         options.caption = text;
       }
+      // Remember the caption sent with a file so the reply pipeline skips a duplicate.
+      recordToolSentText(to, text);
       const result = await sendMessageZaloConnect(to, text, options);
       return {
         channel: "zalo-connect",
