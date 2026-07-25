@@ -98,6 +98,23 @@ describe("Zalo media ingestion guard", () => {
     expect(converted?.content).toBe("Example link");
   });
 
+  it("extracts a Zalo file attachment (PDF) into mediaUrls", () => {
+    // A file message (TAttachmentContent) puts the name in `title`, the download
+    // link in `href`, and fileExt/fileSize inside a stringified `params` — none
+    // of which look like an image, so this used to surface as a bare "[media]".
+    const converted = convertToZaloConnectMessage(fakeUserMessage(JSON.stringify({
+      title: "bat-tu_tran-tien-nhan_19970702_nam.pdf",
+      href: "https://f5-zpg.zdn.vn/file/d/abc123def456",
+      thumb: "",
+      action: "recommened.link",
+      type: "file",
+      params: JSON.stringify({ fileExt: "pdf", fileName: "bat-tu_tran-tien-nhan_19970702_nam.pdf", fileSize: 489030 }),
+    })));
+
+    expect(converted?.mediaUrls).toEqual(["https://f5-zpg.zdn.vn/file/d/abc123def456"]);
+    expect(converted?.mediaTypes).toEqual(["application/pdf"]);
+  });
+
   it("drops object payloads that contain no text and no media URL", () => {
     const converted = convertToZaloConnectMessage(fakeUserMessage({
       thumb: "https://example.com/profile-or-preview.jpg",

@@ -22,6 +22,7 @@ import { getZaloConnectRuntime } from "../runtime/runtime.js";
 import { sendMessageZaloConnect } from "./send.js";
 import { getApi, getCurrentUid, getCurrentName, getApiSync, invalidateApi } from "../client/zalo-client.js";
 import { textMentionsAnyName } from "../features/name-trigger.js";
+import { resolveReactionIcon } from "../features/reaction-icons.js";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
@@ -185,6 +186,9 @@ const SYSTEM_NOTIFICATION_PATTERNS = [
 
 const IMAGE_URL_RE = /\.(?:jpe?g|png|gif|webp|bmp|svg|tiff?)(?:[?#]|$)/i;
 const GENERIC_FILE_URL_RE = /\.(?:pdf|docx?|xlsx?|pptx?|csv|txt|zip|rar)(?:[?#]|$)/i;
+// Real file extensions (not TLDs like .com/.io) — used to tell a shared file
+// apart from a link preview when the extension comes from a title/URL tail.
+const KNOWN_FILE_EXT_RE = /^(?:pdf|docx?|xlsx?|pptx?|csv|txt|md|rtf|json|xml|zip|rar|7z|gz|tar|jpe?g|png|gif|webp|bmp|tiff?|svg|heic|mp4|mov|webm|mkv|avi|m4v|mp3|m4a|aac|wav|ogg|opus|amr|apk)$/i;
 
 function isSystemNotificationContent(content: string): boolean {
   const normalized = content.trim();
@@ -219,6 +223,44 @@ function looksLikeExplicitFileObject(obj: Record<string, unknown>, url: string):
   const hasFileName = ["fileName", "filename", "name"].some((key) => typeof obj[key] === "string" && String(obj[key]).trim().length > 0);
   const hasFileSize = ["fileSize", "size"].some((key) => obj[key] !== undefined && obj[key] !== null);
   return hasFileName || hasFileSize || GENERIC_FILE_URL_RE.test(url) || IMAGE_URL_RE.test(url);
+}
+
+// Zalo file/attachment messages (TAttachmentContent) carry the display name in
+// `title`, the download link in `href`, and file metadata (fileExt/fileName/
+// fileSize) inside a stringified `params` JSON — not as top-level fields. Parse
+// it so replies to (or direct sends of) a PDF/DOCX resolve to a real download.
+function parseAttachParams(record: Record<string, unknown>): { fileExt?: string; fileName?: string; fileSize?: unknown } {
+  const raw = record.params;
+  if (typeof raw !== "string" || !raw.trim()) return {};
+  try {
+    const p = JSON.parse(raw) as Record<string, unknown>;
+    if (p && typeof p === "object") {
+      return {
+        fileExt: typeof p.fileExt === "string" ? p.fileExt : undefined,
+        fileName: typeof p.fileName === "string" ? p.fileName : undefined,
+        fileSize: p.fileSize ?? p.totalSize ?? undefined,
+      };
+    }
+  } catch {
+    // params is not JSON — ignore.
+  }
+  return {};
+}
+
+function extensionOf(name: string | undefined): string | undefined {
+  if (!name) return undefined;
+  const m = /\.([a-z0-9]{1,6})(?:[?#].*)?$/i.exec(name.trim());
+  return m ? m[1].toLowerCase() : undefined;
+}
+
+function mimeFromExt(ext: string | undefined): string | undefined {
+  const e = (ext || "").toLowerCase().replace(/^\./, "");
+  if (!e) return undefined;
+  if (/^(?:jpe?g|png|gif|webp|bmp|tiff?|svg)$/.test(e)) return "image/jpeg";
+  if (/^(?:mp4|mov|webm|mkv|avi|m4v)$/.test(e)) return "video/mp4";
+  if (/^(?:mp3|m4a|aac|wav|ogg|opus|amr)$/.test(e)) return "audio/mpeg";
+  if (e === "pdf") return "application/pdf";
+  return "application/octet-stream";
 }
 
 function fileSha256(filePath: string): string | undefined {
@@ -479,11 +521,30 @@ function extractMediaFromObject(obj: any, mediaUrls: string[], mediaTypes: strin
     pushMediaUrl(mediaUrls, mediaTypes, photoUrl, "image/jpeg");
   }
 
-  // href/url is accepted only when the object itself looks like a media/file attachment.
-  // This avoids treating generic link previews and friend-event assets as customer uploads.
+  // href/url is accepted when the object looks like a media/file attachment.
+  // This avoids treating generic link previews and friend-event assets as
+  // customer uploads, while still catching real files (PDF/DOCX/…) whose
+  // filename+extension live in `title`/`params` rather than the URL.
   const href = typeof record.href === "string" ? record.href : (typeof record.url === "string" ? record.url : "");
-  if (href && (mimeType || looksLikeExplicitFileObject(record, href))) {
-    pushMediaUrl(mediaUrls, mediaTypes, href, mimeType ?? (IMAGE_URL_RE.test(href) ? "image/jpeg" : "application/octet-stream"));
+  const params = parseAttachParams(record);
+  const fileName = params.fileName || title;
+  const ext = params.fileExt || extensionOf(fileName) || extensionOf(href);
+  // Only count a title/URL extension when it's a real file type — otherwise a
+  // link preview to "example.com" would look like a ".com file".
+  const knownFileExt = !!ext && KNOWN_FILE_EXT_RE.test(ext);
+  const looksLikeFile =
+    !!mimeType ||
+    looksLikeExplicitFileObject(record, href) ||
+    !!params.fileExt ||
+    !!params.fileName ||
+    params.fileSize !== undefined ||
+    knownFileExt;
+  if (href && looksLikeFile) {
+    // A known extension (e.g. pdf) is more specific than the generic
+    // "file" → application/octet-stream that mediaMimeFromObject infers.
+    const extMime = knownFileExt ? mimeFromExt(ext) : undefined;
+    const mime = extMime ?? mimeType ?? (IMAGE_URL_RE.test(href) ? "image/jpeg" : "application/octet-stream");
+    pushMediaUrl(mediaUrls, mediaTypes, href, mime);
   }
 
   return title || description || (mediaUrls.length > 0 ? "[Media attachment]" : "");
@@ -1121,15 +1182,17 @@ async function processMessage(
       try {
         const api = await getApi(account.accountId);
         const type = isGroup ? ThreadType.Group : ThreadType.User;
-        const iconMap: Record<string, Reactions> = {
-          heart: Reactions.HEART, love: Reactions.HEART, like: Reactions.LIKE,
-          haha: Reactions.HAHA, wow: Reactions.WOW, sad: Reactions.CRY,
-          cry: Reactions.CRY, angry: Reactions.ANGRY,
-          "👍": Reactions.LIKE, "❤️": Reactions.HEART, "😆": Reactions.HAHA,
-          "😮": Reactions.WOW, "😢": Reactions.CRY, "😠": Reactions.ANGRY,
-          "👀": Reactions.SURPRISE,
-        };
-        const reactionIcon = iconMap[ackReaction.toLowerCase()] ?? (ackReaction as Reactions);
+        // Zalo only accepts its own 55 reactions; an arbitrary emoji resolves to nothing
+        // and the API rejects it, so say which value was unusable instead of firing a
+        // request that silently never shows up as a reaction.
+        const reactionIcon = resolveReactionIcon(ackReaction);
+        if (!reactionIcon) {
+          runtime.log?.(
+            `[zalo-connect] messages.ackReaction "${ackReaction}" is not a Zalo reaction — ` +
+              `use a name (e.g. "sunglasses"), a supported emoji (e.g. "😎"), or a Zalo code (e.g. "b-)").`,
+          );
+          return false;
+        }
         await api.addReaction(reactionIcon, {
           data: { msgId: ackMsgId, cliMsgId: ackCliMsgId },
           threadId: chatId,
@@ -1137,8 +1200,10 @@ async function processMessage(
         });
         return true;
       } catch (err) {
+        // Normal level, not verbose: a reaction that never appears is otherwise
+        // indistinguishable from the feature being switched off.
         logAckFailure({
-          log: (msg) => logVerbose(core, runtime, msg),
+          log: (msg) => runtime.log?.(`[zalo-connect] ${msg}`),
           channel: "zalo-connect",
           target: chatId,
           error: err,
@@ -1275,15 +1340,47 @@ function stripThinkingTags(text: string): string {
 function isToolTraceMessage(text: string): boolean {
   const t = text.trim();
   if (!t) return false;
-  const hasWrench = /🛠️/.test(t);
+  // Internal runtime paths must never reach a channel. Their presence is a
+  // sure sign this is a tool/message action status, not a user-facing answer
+  // (e.g. "⚠️ ✉️ Message: media $OPENCLAW_HOME/media/outbound/x.pdf … failed").
+  if (/\$OPENCLAW_HOME|\/media\/outbound\/|\/home\/node\/|\.openclaw\/media\//.test(t)) return true;
+  const hasWrench = /🛠️/u.test(t);
   const agentSuffix = /\((?:agent|you)\)\s*$/i.test(t);
-  const execOpener = /^\s*(?:@\S+\s+)?(?:⚠️\s*)?🛠️\s*(?:exec|tool|command|run)\b/i.test(t);
-  const failedOpener = /^\s*(?:@\S+\s+)?(?:⚠️\s*)?🛠️.*\b(?:failed|error)\b/i.test(t);
-  return (hasWrench && agentSuffix) || execOpener || failedOpener;
+  // Status-notice openers OpenClaw renders for tool/message/media actions, e.g.
+  // "🛠️ Exec failed: …" or "⚠️ ✉️ Message: media … reply to 123 failed". These
+  // are not flagged as tool-progress on the payload, so they otherwise leak.
+  const statusOpener = /^\s*(?:@\S+\s+)?(?:⚠️\s*)?(?:🛠️|✉️|📎|📁|🖼️|🎤|📄|📤)\s*(?:exec|tool|command|run|message|media|send|reply|file|image)\b/iu.test(t);
+  const failedOpener = /^\s*(?:@\S+\s+)?(?:⚠️\s*)?(?:🛠️|✉️)[^\n]*\b(?:failed|error)\b/iu.test(t);
+  // "… reply to <digits> failed" is the message-send failure trace shape.
+  const replyFailed = /\breply to \d{5,}\s+failed\b/i.test(t);
+  return (hasWrench && agentSuffix) || statusOpener || failedOpener || replyFailed;
 }
 
 /** Exported for testing only. */
 export { isToolTraceMessage as _isToolTraceMessage };
+
+// OpenClaw's context-overflow / auto-compaction recovery notice is genuinely
+// user-actionable ("try again, use /new") so we deliver it — but it appends
+// OPERATOR-only advice that names internal config keys ("increase your
+// compaction buffer by setting agents.defaults.compaction.reserveTokensFloor
+// to 50000…"). That leaks implementation detail into an end-user group. Strip
+// only that advice, and only inside a recognized overflow notice, so we never
+// touch a normal reply where the agent is legitimately helping a user edit
+// their own openclaw.json.
+function sanitizeOverflowNotice(text: string): string {
+  if (!text) return text;
+  const isOverflowNotice = /auto-compaction could not recover|context overflow|could not recover this turn/i.test(text);
+  if (!isOverflowNotice) return text;
+  return text
+    .split(/\n/)
+    .filter((line) => !/reserveTokensFloor|agents\.defaults\.|compaction buffer|higher in your config/i.test(line))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** Exported for testing only. */
+export { sanitizeOverflowNotice as _sanitizeOverflowNotice };
 
 async function deliverZaloConnectReply(params: {
   payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string; isReasoning?: boolean; isReasoningSnapshot?: boolean; isStatusNotice?: boolean; toolProgress?: boolean };
@@ -1321,6 +1418,7 @@ async function deliverZaloConnectReply(params: {
     return false;
   }
   text = stripThinkingTags(text);
+  text = sanitizeOverflowNotice(text);
 
   // De-dupe against a caption just sent via the send-file/send-image tool: when the
   // agent attaches a file AND repeats the same text as its turn reply, the tool sends

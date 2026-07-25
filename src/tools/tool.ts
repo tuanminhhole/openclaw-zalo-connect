@@ -22,6 +22,7 @@ import {
 } from "zca-js";
 import { getApi as getAccountApi, getCurrentUid } from "../client/zalo-client.js";
 import { lookupCliMsgId } from "../features/msg-id-store.js";
+import { resolveReactionIcon } from "../features/reaction-icons.js";
 import { getLastOutbound, trackOutboundMessage } from "../features/auto-unsend.js";
 import { recordToolSentText } from "../features/recent-tool-text.js";
 import { isKnownGroupId } from "../features/group-id-cache.js";
@@ -464,20 +465,10 @@ export const ZaloConnectToolSchema = Type.Object(
 
 // ─── Reaction icon resolver ──────────────────────────────────────────────────
 
-const REACTION_MAP: Record<string, Reactions> = {
-  heart: Reactions.HEART, love: Reactions.HEART,
-  like: Reactions.LIKE, thumbsup: Reactions.LIKE,
-  haha: Reactions.HAHA, laugh: Reactions.HAHA,
-  wow: Reactions.WOW, surprised: Reactions.WOW,
-  cry: Reactions.CRY, sad: Reactions.CRY,
-  angry: Reactions.ANGRY,
-  none: Reactions.NONE,
-  "👍": Reactions.LIKE, "❤️": Reactions.HEART, "😆": Reactions.HAHA,
-  "😮": Reactions.WOW, "😢": Reactions.CRY, "😠": Reactions.ANGRY,
-};
-
+// Falls back to the raw string so an unmapped-but-valid code still reaches zca-js;
+// see reaction-icons.ts for the full name/emoji/code table.
 function resolveReaction(raw: string): Reactions {
-  return REACTION_MAP[raw.toLowerCase()] ?? (raw as Reactions);
+  return resolveReactionIcon(raw) ?? (raw as Reactions);
 }
 
 // ─── Type alias ──────────────────────────────────────────────────────────────

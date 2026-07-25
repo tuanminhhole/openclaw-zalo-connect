@@ -34,23 +34,6 @@ export async function downloadFileFromUrl(
       fs.mkdirSync(targetDir, { recursive: true });
     }
 
-    // Generate safe filename from hash — never use URL path components directly
-    const urlHash = crypto.createHash("sha256").update(url).digest("hex").substring(0, 12);
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").substring(0, 19);
-
-    // Try to extract extension from URL first, then content-type, then fallback
-    const ext = getSafeExtension(url) || "file";
-    const filename = `${timestamp}-zalo-file-${urlHash}.${ext}`;
-    const filePath = path.join(targetDir, filename);
-
-    // Verify the final path is within the target directory (defense-in-depth)
-    const resolvedPath = path.resolve(filePath);
-    const resolvedDir = path.resolve(targetDir);
-    if (!resolvedPath.startsWith(resolvedDir + path.sep)) {
-      console.error(`[file-downloader] Path traversal blocked: ${filePath}`);
-      return undefined;
-    }
-
     // Use safeFetch with SSRF protection and size limits
     const isZaloCdn = /^https:\/\/(?:[a-z0-9-]+\.)*(?:zalo|zadn|zdn)\.(?:vn|me)\//i.test(url);
     const { buffer, contentType } = await safeFetch(url, {
@@ -61,6 +44,23 @@ export async function downloadFileFromUrl(
     // Log content type for debugging (no rejection — accept any type)
     if (contentType) {
       console.log(`[file-downloader] Downloaded ${contentType} from ${url}`);
+    }
+
+    // Generate safe filename from hash — never use URL path components directly.
+    // Zalo file CDN links often carry no extension in the path, so fall back to
+    // the response content-type; otherwise the model can't tell it's a PDF/DOCX.
+    const urlHash = crypto.createHash("sha256").update(url).digest("hex").substring(0, 12);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").substring(0, 19);
+    const ext = getSafeExtension(url) || extensionFromContentType(contentType) || "file";
+    const filename = `${timestamp}-zalo-file-${urlHash}.${ext}`;
+    const filePath = path.join(targetDir, filename);
+
+    // Verify the final path is within the target directory (defense-in-depth)
+    const resolvedPath = path.resolve(filePath);
+    const resolvedDir = path.resolve(targetDir);
+    if (!resolvedPath.startsWith(resolvedDir + path.sep)) {
+      console.error(`[file-downloader] Path traversal blocked: ${filePath}`);
+      return undefined;
     }
 
     fs.writeFileSync(filePath, buffer);
@@ -88,7 +88,7 @@ function getSafeExtension(url: string): string {
   try {
     const urlObj = new URL(url);
     const pathname = urlObj.pathname;
-    const match = pathname.match(/\.([a-z0-9]+)$/i);
+    const match = pathname.match(/\.([a-z0-9]{1,6})$/i);
     if (match) {
       return match[1].toLowerCase();
     }
@@ -96,4 +96,36 @@ function getSafeExtension(url: string): string {
     // invalid URL
   }
   return "";
+}
+
+/** Map a response content-type to a file extension (best-effort, safe fallback). */
+function extensionFromContentType(contentType?: string | null): string {
+  if (!contentType) return "";
+  const t = contentType.split(";")[0].trim().toLowerCase();
+  const map: Record<string, string> = {
+    "application/pdf": "pdf",
+    "application/msword": "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "application/vnd.ms-excel": "xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+    "application/vnd.ms-powerpoint": "ppt",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+    "text/csv": "csv",
+    "text/plain": "txt",
+    "text/markdown": "md",
+    "application/json": "json",
+    "application/xml": "xml",
+    "text/xml": "xml",
+    "application/zip": "zip",
+    "application/x-rar-compressed": "rar",
+    "application/vnd.rar": "rar",
+    "application/gzip": "gz",
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "video/mp4": "mp4",
+    "audio/mpeg": "mp3",
+  };
+  return map[t] || "";
 }

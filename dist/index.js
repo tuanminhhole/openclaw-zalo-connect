@@ -481,62 +481,62 @@ var init_QuickMessage = __esm({
 var Reactions, Reaction;
 var init_Reaction = __esm({
   "node_modules/zca-js/dist/models/Reaction.js"() {
-    (function(Reactions2) {
-      Reactions2["HEART"] = "/-heart";
-      Reactions2["LIKE"] = "/-strong";
-      Reactions2["HAHA"] = ":>";
-      Reactions2["WOW"] = ":o";
-      Reactions2["CRY"] = ":-((";
-      Reactions2["ANGRY"] = ":-h";
-      Reactions2["KISS"] = ":-*";
-      Reactions2["TEARS_OF_JOY"] = ":')";
-      Reactions2["SHIT"] = "/-shit";
-      Reactions2["ROSE"] = "/-rose";
-      Reactions2["BROKEN_HEART"] = "/-break";
-      Reactions2["DISLIKE"] = "/-weak";
-      Reactions2["LOVE"] = ";xx";
-      Reactions2["CONFUSED"] = ";-/";
-      Reactions2["WINK"] = ";-)";
-      Reactions2["FADE"] = "/-fade";
-      Reactions2["SUN"] = "/-li";
-      Reactions2["BIRTHDAY"] = "/-bd";
-      Reactions2["BOMB"] = "/-bome";
-      Reactions2["OK"] = "/-ok";
-      Reactions2["PEACE"] = "/-v";
-      Reactions2["THANKS"] = "/-thanks";
-      Reactions2["PUNCH"] = "/-punch";
-      Reactions2["SHARE"] = "/-share";
-      Reactions2["PRAY"] = "_()_";
-      Reactions2["NO"] = "/-no";
-      Reactions2["BAD"] = "/-bad";
-      Reactions2["LOVE_YOU"] = "/-loveu";
-      Reactions2["SAD"] = "--b";
-      Reactions2["VERY_SAD"] = ":((";
-      Reactions2["COOL"] = "x-)";
-      Reactions2["NERD"] = "8-)";
-      Reactions2["BIG_SMILE"] = ";-d";
-      Reactions2["SUNGLASSES"] = "b-)";
-      Reactions2["NEUTRAL"] = ":--|";
-      Reactions2["SAD_FACE"] = "p-(";
-      Reactions2["BYE"] = ":-bye";
-      Reactions2["SLEEPY"] = "|-)";
-      Reactions2["WIPE"] = ":wipe";
-      Reactions2["DIG"] = ":-dig";
-      Reactions2["ANGUISH"] = "&-(";
-      Reactions2["HANDCLAP"] = ":handclap";
-      Reactions2["ANGRY_FACE"] = ">-|";
-      Reactions2["F_CHAIR"] = ":-f";
-      Reactions2["L_CHAIR"] = ":-l";
-      Reactions2["R_CHAIR"] = ":-r";
-      Reactions2["SILENT"] = ";-x";
-      Reactions2["SURPRISE"] = ":-o";
-      Reactions2["EMBARRASSED"] = ";-s";
-      Reactions2["AFRAID"] = ";-a";
-      Reactions2["SAD2"] = ":-<";
-      Reactions2["BIG_LAUGH"] = ":))";
-      Reactions2["RICH"] = "$-)";
-      Reactions2["BEER"] = "/-beer";
-      Reactions2["NONE"] = "";
+    (function(Reactions3) {
+      Reactions3["HEART"] = "/-heart";
+      Reactions3["LIKE"] = "/-strong";
+      Reactions3["HAHA"] = ":>";
+      Reactions3["WOW"] = ":o";
+      Reactions3["CRY"] = ":-((";
+      Reactions3["ANGRY"] = ":-h";
+      Reactions3["KISS"] = ":-*";
+      Reactions3["TEARS_OF_JOY"] = ":')";
+      Reactions3["SHIT"] = "/-shit";
+      Reactions3["ROSE"] = "/-rose";
+      Reactions3["BROKEN_HEART"] = "/-break";
+      Reactions3["DISLIKE"] = "/-weak";
+      Reactions3["LOVE"] = ";xx";
+      Reactions3["CONFUSED"] = ";-/";
+      Reactions3["WINK"] = ";-)";
+      Reactions3["FADE"] = "/-fade";
+      Reactions3["SUN"] = "/-li";
+      Reactions3["BIRTHDAY"] = "/-bd";
+      Reactions3["BOMB"] = "/-bome";
+      Reactions3["OK"] = "/-ok";
+      Reactions3["PEACE"] = "/-v";
+      Reactions3["THANKS"] = "/-thanks";
+      Reactions3["PUNCH"] = "/-punch";
+      Reactions3["SHARE"] = "/-share";
+      Reactions3["PRAY"] = "_()_";
+      Reactions3["NO"] = "/-no";
+      Reactions3["BAD"] = "/-bad";
+      Reactions3["LOVE_YOU"] = "/-loveu";
+      Reactions3["SAD"] = "--b";
+      Reactions3["VERY_SAD"] = ":((";
+      Reactions3["COOL"] = "x-)";
+      Reactions3["NERD"] = "8-)";
+      Reactions3["BIG_SMILE"] = ";-d";
+      Reactions3["SUNGLASSES"] = "b-)";
+      Reactions3["NEUTRAL"] = ":--|";
+      Reactions3["SAD_FACE"] = "p-(";
+      Reactions3["BYE"] = ":-bye";
+      Reactions3["SLEEPY"] = "|-)";
+      Reactions3["WIPE"] = ":wipe";
+      Reactions3["DIG"] = ":-dig";
+      Reactions3["ANGUISH"] = "&-(";
+      Reactions3["HANDCLAP"] = ":handclap";
+      Reactions3["ANGRY_FACE"] = ">-|";
+      Reactions3["F_CHAIR"] = ":-f";
+      Reactions3["L_CHAIR"] = ":-l";
+      Reactions3["R_CHAIR"] = ":-r";
+      Reactions3["SILENT"] = ";-x";
+      Reactions3["SURPRISE"] = ":-o";
+      Reactions3["EMBARRASSED"] = ";-s";
+      Reactions3["AFRAID"] = ";-a";
+      Reactions3["SAD2"] = ":-<";
+      Reactions3["BIG_LAUGH"] = ":))";
+      Reactions3["RICH"] = "$-)";
+      Reactions3["BEER"] = "/-beer";
+      Reactions3["NONE"] = "";
     })(Reactions || (Reactions = {}));
     Reaction = class {
       constructor(uid, data, isGroup) {
@@ -55024,6 +55024,105 @@ var init_name_trigger = __esm({
   }
 });
 
+// src/features/reaction-icons.ts
+function resolveReactionIcon(raw) {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return void 0;
+  if (VALID_CODES.has(trimmed)) return trimmed;
+  const byEmoji = BY_EMOJI[trimmed];
+  if (byEmoji !== void 0) return byEmoji;
+  return ALIASES[trimmed.toLowerCase()];
+}
+var VALID_CODES, BY_NAME, BY_EMOJI, EXTRA_ALIASES, ALIASES;
+var init_reaction_icons = __esm({
+  "src/features/reaction-icons.ts"() {
+    "use strict";
+    init_dist();
+    VALID_CODES = new Set(Object.values(Reactions));
+    BY_NAME = Object.fromEntries(
+      Object.entries(Reactions).flatMap(([name, code]) => {
+        const lower = name.toLowerCase();
+        return [
+          [lower, code],
+          [lower.replace(/_/g, ""), code],
+          [lower.replace(/_/g, "-"), code]
+        ];
+      })
+    );
+    BY_EMOJI = {
+      "\u{1F44D}": Reactions.LIKE,
+      "\u{1F44E}": Reactions.DISLIKE,
+      "\u2764\uFE0F": Reactions.HEART,
+      "\u2764": Reactions.HEART,
+      "\u{1F494}": Reactions.BROKEN_HEART,
+      "\u{1F606}": Reactions.HAHA,
+      "\u{1F602}": Reactions.TEARS_OF_JOY,
+      "\u{1F923}": Reactions.BIG_LAUGH,
+      "\u{1F62E}": Reactions.WOW,
+      "\u{1F632}": Reactions.WOW,
+      "\u{1F62F}": Reactions.SURPRISE,
+      "\u{1F440}": Reactions.SURPRISE,
+      "\u{1F622}": Reactions.CRY,
+      "\u{1F62D}": Reactions.VERY_SAD,
+      "\u{1F620}": Reactions.ANGRY,
+      "\u{1F621}": Reactions.ANGRY_FACE,
+      "\u{1F618}": Reactions.KISS,
+      "\u{1F60D}": Reactions.LOVE,
+      "\u{1F970}": Reactions.LOVE_YOU,
+      "\u{1F609}": Reactions.WINK,
+      "\u{1F615}": Reactions.CONFUSED,
+      "\u{1F60E}": Reactions.SUNGLASSES,
+      "\u{1F913}": Reactions.NERD,
+      "\u{1F603}": Reactions.BIG_SMILE,
+      "\u{1F604}": Reactions.BIG_SMILE,
+      "\u{1F610}": Reactions.NEUTRAL,
+      "\u{1F61E}": Reactions.SAD_FACE,
+      "\u{1F614}": Reactions.SAD,
+      "\u{1F641}": Reactions.SAD2,
+      "\u2639\uFE0F": Reactions.SAD2,
+      "\u{1F633}": Reactions.EMBARRASSED,
+      "\u{1F628}": Reactions.AFRAID,
+      "\u{1F629}": Reactions.ANGUISH,
+      "\u{1F910}": Reactions.SILENT,
+      "\u{1F634}": Reactions.SLEEPY,
+      "\u{1F605}": Reactions.WIPE,
+      "\u{1F911}": Reactions.RICH,
+      "\u{1F44C}": Reactions.OK,
+      "\u270C\uFE0F": Reactions.PEACE,
+      "\u270C": Reactions.PEACE,
+      "\u{1F44A}": Reactions.PUNCH,
+      "\u{1F44F}": Reactions.HANDCLAP,
+      "\u{1F64F}": Reactions.PRAY,
+      "\u{1F44B}": Reactions.BYE,
+      "\u{1F6AB}": Reactions.NO,
+      "\u{1F339}": Reactions.ROSE,
+      "\u{1F4A9}": Reactions.SHIT,
+      "\u{1F4A3}": Reactions.BOMB,
+      "\u{1F382}": Reactions.BIRTHDAY,
+      "\u2600\uFE0F": Reactions.SUN,
+      "\u2600": Reactions.SUN,
+      "\u{1F37A}": Reactions.BEER,
+      "\u{1F37B}": Reactions.BEER
+    };
+    EXTRA_ALIASES = {
+      thumbsup: Reactions.LIKE,
+      "thumbs-up": Reactions.LIKE,
+      thumbsdown: Reactions.DISLIKE,
+      laugh: Reactions.HAHA,
+      lol: Reactions.BIG_LAUGH,
+      surprised: Reactions.WOW,
+      eyes: Reactions.SURPRISE,
+      clap: Reactions.HANDCLAP,
+      thanks: Reactions.THANKS,
+      "thank-you": Reactions.THANKS,
+      off: Reactions.NONE,
+      remove: Reactions.NONE,
+      clear: Reactions.NONE
+    };
+    ALIASES = { ...BY_NAME, ...EXTRA_ALIASES };
+  }
+});
+
 // src/safety/url-validator.ts
 import { URL as URL2 } from "node:url";
 import * as dns from "node:dns/promises";
@@ -55262,17 +55361,6 @@ async function downloadFileFromUrl(url2, workspaceDir) {
     if (!fs11.existsSync(targetDir)) {
       fs11.mkdirSync(targetDir, { recursive: true });
     }
-    const urlHash = crypto5.createHash("sha256").update(url2).digest("hex").substring(0, 12);
-    const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").substring(0, 19);
-    const ext = getSafeExtension2(url2) || "file";
-    const filename = `${timestamp}-zalo-file-${urlHash}.${ext}`;
-    const filePath = path4.join(targetDir, filename);
-    const resolvedPath = path4.resolve(filePath);
-    const resolvedDir = path4.resolve(targetDir);
-    if (!resolvedPath.startsWith(resolvedDir + path4.sep)) {
-      console.error(`[file-downloader] Path traversal blocked: ${filePath}`);
-      return void 0;
-    }
     const isZaloCdn = /^https:\/\/(?:[a-z0-9-]+\.)*(?:zalo|zadn|zdn)\.(?:vn|me)\//i.test(url2);
     const { buffer, contentType } = await safeFetch(url2, {
       maxSizeBytes: MAX_FILE_SIZE_BYTES,
@@ -55280,6 +55368,17 @@ async function downloadFileFromUrl(url2, workspaceDir) {
     });
     if (contentType) {
       console.log(`[file-downloader] Downloaded ${contentType} from ${url2}`);
+    }
+    const urlHash = crypto5.createHash("sha256").update(url2).digest("hex").substring(0, 12);
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").substring(0, 19);
+    const ext = getSafeExtension2(url2) || extensionFromContentType(contentType) || "file";
+    const filename = `${timestamp}-zalo-file-${urlHash}.${ext}`;
+    const filePath = path4.join(targetDir, filename);
+    const resolvedPath = path4.resolve(filePath);
+    const resolvedDir = path4.resolve(targetDir);
+    if (!resolvedPath.startsWith(resolvedDir + path4.sep)) {
+      console.error(`[file-downloader] Path traversal blocked: ${filePath}`);
+      return void 0;
     }
     fs11.writeFileSync(filePath, buffer);
     console.log(`[file-downloader] Saved to ${filePath} (${buffer.length} bytes)`);
@@ -55293,13 +55392,43 @@ function getSafeExtension2(url2) {
   try {
     const urlObj = new URL(url2);
     const pathname = urlObj.pathname;
-    const match = pathname.match(/\.([a-z0-9]+)$/i);
+    const match = pathname.match(/\.([a-z0-9]{1,6})$/i);
     if (match) {
       return match[1].toLowerCase();
     }
   } catch {
   }
   return "";
+}
+function extensionFromContentType(contentType) {
+  if (!contentType) return "";
+  const t = contentType.split(";")[0].trim().toLowerCase();
+  const map2 = {
+    "application/pdf": "pdf",
+    "application/msword": "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "application/vnd.ms-excel": "xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+    "application/vnd.ms-powerpoint": "ppt",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+    "text/csv": "csv",
+    "text/plain": "txt",
+    "text/markdown": "md",
+    "application/json": "json",
+    "application/xml": "xml",
+    "text/xml": "xml",
+    "application/zip": "zip",
+    "application/x-rar-compressed": "rar",
+    "application/vnd.rar": "rar",
+    "application/gzip": "gz",
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "video/mp4": "mp4",
+    "audio/mpeg": "mp3"
+  };
+  return map2[t] || "";
 }
 var MAX_FILE_SIZE_BYTES;
 var init_file_downloader = __esm({
@@ -60366,7 +60495,7 @@ function stringEnum(values, opts = {}) {
   });
 }
 function resolveReaction(raw) {
-  return REACTION_MAP[raw.toLowerCase()] ?? raw;
+  return resolveReactionIcon(raw) ?? raw;
 }
 async function executeZaloConnectTool(_callId, p, _signal) {
   try {
@@ -61737,7 +61866,7 @@ async function dispatch(p) {
       return ok({ error: true, message: `Unknown action: ${p.action}` });
   }
 }
-var toolAccountContext, getApi2, ACTIONS, ZaloConnectToolSchema, REACTION_MAP;
+var toolAccountContext, getApi2, ACTIONS, ZaloConnectToolSchema;
 var init_tool = __esm({
   "src/tools/tool.ts"() {
     "use strict";
@@ -61745,6 +61874,7 @@ var init_tool = __esm({
     init_dist();
     init_zalo_client();
     init_msg_id_store();
+    init_reaction_icons();
     init_auto_unsend();
     init_recent_tool_text();
     init_group_id_cache();
@@ -62045,26 +62175,6 @@ var init_tool = __esm({
       },
       { additionalProperties: false }
     );
-    REACTION_MAP = {
-      heart: Reactions.HEART,
-      love: Reactions.HEART,
-      like: Reactions.LIKE,
-      thumbsup: Reactions.LIKE,
-      haha: Reactions.HAHA,
-      laugh: Reactions.HAHA,
-      wow: Reactions.WOW,
-      surprised: Reactions.WOW,
-      cry: Reactions.CRY,
-      sad: Reactions.CRY,
-      angry: Reactions.ANGRY,
-      none: Reactions.NONE,
-      "\u{1F44D}": Reactions.LIKE,
-      "\u2764\uFE0F": Reactions.HEART,
-      "\u{1F606}": Reactions.HAHA,
-      "\u{1F62E}": Reactions.WOW,
-      "\u{1F622}": Reactions.CRY,
-      "\u{1F620}": Reactions.ANGRY
-    };
   }
 });
 
@@ -62147,6 +62257,7 @@ __export(monitor_exports, {
   _isSystemNotificationContent: () => isSystemNotificationContent,
   _isToolTraceMessage: () => isToolTraceMessage,
   _processedMsgIds: () => processedMsgIds,
+  _sanitizeOverflowNotice: () => sanitizeOverflowNotice,
   monitorZaloConnectProvider: () => monitorZaloConnectProvider
 });
 import { createReplyPrefixOptions, createTypingCallbacks } from "openclaw/plugin-sdk/channel-reply-pipeline";
@@ -62249,6 +62360,36 @@ function looksLikeExplicitFileObject(obj, url2) {
   const hasFileName = ["fileName", "filename", "name"].some((key) => typeof obj[key] === "string" && String(obj[key]).trim().length > 0);
   const hasFileSize = ["fileSize", "size"].some((key) => obj[key] !== void 0 && obj[key] !== null);
   return hasFileName || hasFileSize || GENERIC_FILE_URL_RE.test(url2) || IMAGE_URL_RE.test(url2);
+}
+function parseAttachParams(record2) {
+  const raw = record2.params;
+  if (typeof raw !== "string" || !raw.trim()) return {};
+  try {
+    const p = JSON.parse(raw);
+    if (p && typeof p === "object") {
+      return {
+        fileExt: typeof p.fileExt === "string" ? p.fileExt : void 0,
+        fileName: typeof p.fileName === "string" ? p.fileName : void 0,
+        fileSize: p.fileSize ?? p.totalSize ?? void 0
+      };
+    }
+  } catch {
+  }
+  return {};
+}
+function extensionOf(name) {
+  if (!name) return void 0;
+  const m = /\.([a-z0-9]{1,6})(?:[?#].*)?$/i.exec(name.trim());
+  return m ? m[1].toLowerCase() : void 0;
+}
+function mimeFromExt(ext) {
+  const e = (ext || "").toLowerCase().replace(/^\./, "");
+  if (!e) return void 0;
+  if (/^(?:jpe?g|png|gif|webp|bmp|tiff?|svg)$/.test(e)) return "image/jpeg";
+  if (/^(?:mp4|mov|webm|mkv|avi|m4v)$/.test(e)) return "video/mp4";
+  if (/^(?:mp3|m4a|aac|wav|ogg|opus|amr)$/.test(e)) return "audio/mpeg";
+  if (e === "pdf") return "application/pdf";
+  return "application/octet-stream";
 }
 function fileSha256(filePath) {
   try {
@@ -62456,8 +62597,15 @@ function extractMediaFromObject(obj, mediaUrls, mediaTypes) {
     pushMediaUrl(mediaUrls, mediaTypes, photoUrl, "image/jpeg");
   }
   const href = typeof record2.href === "string" ? record2.href : typeof record2.url === "string" ? record2.url : "";
-  if (href && (mimeType || looksLikeExplicitFileObject(record2, href))) {
-    pushMediaUrl(mediaUrls, mediaTypes, href, mimeType ?? (IMAGE_URL_RE.test(href) ? "image/jpeg" : "application/octet-stream"));
+  const params = parseAttachParams(record2);
+  const fileName = params.fileName || title;
+  const ext = params.fileExt || extensionOf(fileName) || extensionOf(href);
+  const knownFileExt = !!ext && KNOWN_FILE_EXT_RE.test(ext);
+  const looksLikeFile = !!mimeType || looksLikeExplicitFileObject(record2, href) || !!params.fileExt || !!params.fileName || params.fileSize !== void 0 || knownFileExt;
+  if (href && looksLikeFile) {
+    const extMime = knownFileExt ? mimeFromExt(ext) : void 0;
+    const mime = extMime ?? mimeType ?? (IMAGE_URL_RE.test(href) ? "image/jpeg" : "application/octet-stream");
+    pushMediaUrl(mediaUrls, mediaTypes, href, mime);
   }
   return title || description || (mediaUrls.length > 0 ? "[Media attachment]" : "");
 }
@@ -62957,24 +63105,13 @@ ${bodyWithSender}`;
       try {
         const api = await getApi(account.accountId);
         const type = isGroup ? ThreadType.Group : ThreadType.User;
-        const iconMap = {
-          heart: Reactions.HEART,
-          love: Reactions.HEART,
-          like: Reactions.LIKE,
-          haha: Reactions.HAHA,
-          wow: Reactions.WOW,
-          sad: Reactions.CRY,
-          cry: Reactions.CRY,
-          angry: Reactions.ANGRY,
-          "\u{1F44D}": Reactions.LIKE,
-          "\u2764\uFE0F": Reactions.HEART,
-          "\u{1F606}": Reactions.HAHA,
-          "\u{1F62E}": Reactions.WOW,
-          "\u{1F622}": Reactions.CRY,
-          "\u{1F620}": Reactions.ANGRY,
-          "\u{1F440}": Reactions.SURPRISE
-        };
-        const reactionIcon = iconMap[ackReaction.toLowerCase()] ?? ackReaction;
+        const reactionIcon = resolveReactionIcon(ackReaction);
+        if (!reactionIcon) {
+          runtime2.log?.(
+            `[zalo-connect] messages.ackReaction "${ackReaction}" is not a Zalo reaction \u2014 use a name (e.g. "sunglasses"), a supported emoji (e.g. "\u{1F60E}"), or a Zalo code (e.g. "b-)").`
+          );
+          return false;
+        }
         await api.addReaction(reactionIcon, {
           data: { msgId: ackMsgId, cliMsgId: ackCliMsgId },
           threadId: chatId,
@@ -62983,7 +63120,7 @@ ${bodyWithSender}`;
         return true;
       } catch (err2) {
         logAckFailure({
-          log: (msg) => logVerbose(core, runtime2, msg),
+          log: (msg) => runtime2.log?.(`[zalo-connect] ${msg}`),
           channel: "zalo-connect",
           target: chatId,
           error: err2
@@ -63098,11 +63235,19 @@ function stripThinkingTags(text) {
 function isToolTraceMessage(text) {
   const t = text.trim();
   if (!t) return false;
-  const hasWrench = /🛠️/.test(t);
+  if (/\$OPENCLAW_HOME|\/media\/outbound\/|\/home\/node\/|\.openclaw\/media\//.test(t)) return true;
+  const hasWrench = /🛠️/u.test(t);
   const agentSuffix = /\((?:agent|you)\)\s*$/i.test(t);
-  const execOpener = /^\s*(?:@\S+\s+)?(?:⚠️\s*)?🛠️\s*(?:exec|tool|command|run)\b/i.test(t);
-  const failedOpener = /^\s*(?:@\S+\s+)?(?:⚠️\s*)?🛠️.*\b(?:failed|error)\b/i.test(t);
-  return hasWrench && agentSuffix || execOpener || failedOpener;
+  const statusOpener = /^\s*(?:@\S+\s+)?(?:⚠️\s*)?(?:🛠️|✉️|📎|📁|🖼️|🎤|📄|📤)\s*(?:exec|tool|command|run|message|media|send|reply|file|image)\b/iu.test(t);
+  const failedOpener = /^\s*(?:@\S+\s+)?(?:⚠️\s*)?(?:🛠️|✉️)[^\n]*\b(?:failed|error)\b/iu.test(t);
+  const replyFailed = /\breply to \d{5,}\s+failed\b/i.test(t);
+  return hasWrench && agentSuffix || statusOpener || failedOpener || replyFailed;
+}
+function sanitizeOverflowNotice(text) {
+  if (!text) return text;
+  const isOverflowNotice = /auto-compaction could not recover|context overflow|could not recover this turn/i.test(text);
+  if (!isOverflowNotice) return text;
+  return text.split(/\n/).filter((line) => !/reserveTokensFloor|agents\.defaults\.|compaction buffer|higher in your config/i.test(line)).join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 async function deliverZaloConnectReply(params) {
   const { payload, chatId, isGroup, runtime: runtime2, core, config: config2, accountId, statusSink } = params;
@@ -63121,6 +63266,7 @@ async function deliverZaloConnectReply(params) {
     return false;
   }
   text = stripThinkingTags(text);
+  text = sanitizeOverflowNotice(text);
   const replyHasOwnMedia = !!(payload.mediaUrls?.length || payload.mediaUrl);
   if (text && !replyHasOwnMedia && wasRecentlyToolSent(chatId, text)) {
     logVerbose(core, runtime2, `Skipping reply text duplicated by a tool-sent caption in ${chatId}`);
@@ -63705,7 +63851,7 @@ async function monitorZaloConnectProvider(options) {
   await runningPromise;
   return { stop };
 }
-var ZALOJS_TEXT_LIMIT, nameCache, groupNameCache, NAME_CACHE_TTL, groupMessageBuffer, GROUP_BUFFER_MAX_MESSAGES, GROUP_BUFFER_MAX_AGE_S, lastInboundMessage, INBOUND_CACHE_MAX, processedMsgIds, DEDUP_TTL, DEDUP_MAX, SYSTEM_NOTIFICATION_PATTERNS, IMAGE_URL_RE, GENERIC_FILE_URL_RE, THINKING_TAG_RE, REASONING_PREFIX;
+var ZALOJS_TEXT_LIMIT, nameCache, groupNameCache, NAME_CACHE_TTL, groupMessageBuffer, GROUP_BUFFER_MAX_MESSAGES, GROUP_BUFFER_MAX_AGE_S, lastInboundMessage, INBOUND_CACHE_MAX, processedMsgIds, DEDUP_TTL, DEDUP_MAX, SYSTEM_NOTIFICATION_PATTERNS, IMAGE_URL_RE, GENERIC_FILE_URL_RE, KNOWN_FILE_EXT_RE, THINKING_TAG_RE, REASONING_PREFIX;
 var init_monitor = __esm({
   "src/channel/monitor.ts"() {
     "use strict";
@@ -63714,6 +63860,7 @@ var init_monitor = __esm({
     init_send();
     init_zalo_client();
     init_name_trigger();
+    init_reaction_icons();
     init_image_metadata();
     init_image_downloader();
     init_file_downloader();
@@ -63749,6 +63896,7 @@ var init_monitor = __esm({
     ];
     IMAGE_URL_RE = /\.(?:jpe?g|png|gif|webp|bmp|svg|tiff?)(?:[?#]|$)/i;
     GENERIC_FILE_URL_RE = /\.(?:pdf|docx?|xlsx?|pptx?|csv|txt|zip|rar)(?:[?#]|$)/i;
+    KNOWN_FILE_EXT_RE = /^(?:pdf|docx?|xlsx?|pptx?|csv|txt|md|rtf|json|xml|zip|rar|7z|gz|tar|jpe?g|png|gif|webp|bmp|tiff?|svg|heic|mp4|mov|webm|mkv|avi|m4v|mp3|m4a|aac|wav|ogg|opus|amr|apk)$/i;
     THINKING_TAG_RE = /^\s*<(?:think|thinking|thought|antthinking)\b[^>]*>/i;
     REASONING_PREFIX = "Reasoning:\n";
   }
@@ -79264,8 +79412,9 @@ var zaloConnectPlugin = {
           results.push({ input, resolved: false, note: "empty input" });
           continue;
         }
-        if (/^\d+$/.test(trimmed)) {
-          results.push({ input, resolved: true, id: trimmed });
+        const target = trimmed.replace(/^['"]?(?:zalo-connect|oz)['"]?\s*:\s*/i, "").replace(/^['"]+|['"]+$/g, "").trim();
+        if (/^\d+$/.test(target)) {
+          results.push({ input, resolved: true, id: target });
           continue;
         }
         try {
@@ -79274,7 +79423,7 @@ var zaloConnectPlugin = {
           if (kind === "user") {
             const friends = await api.getAllFriends();
             const friendList = Array.isArray(friends) ? friends : [];
-            const matches = friendList.filter((f) => (f.displayName ?? "").toLowerCase().includes(trimmed.toLowerCase())).map((f) => ({ id: String(f.userId), name: f.displayName ?? void 0 }));
+            const matches = friendList.filter((f) => (f.displayName ?? "").toLowerCase().includes(target.toLowerCase())).map((f) => ({ id: String(f.userId), name: f.displayName ?? void 0 }));
             const best = matches[0];
             results.push({
               input,
@@ -79300,9 +79449,9 @@ var zaloConnectPlugin = {
               }
             }
             const matches = groups.filter(
-              (g) => (g.name ?? "").toLowerCase().includes(trimmed.toLowerCase())
+              (g) => (g.name ?? "").toLowerCase().includes(target.toLowerCase())
             );
-            const best = matches.find((g) => g.name?.toLowerCase() === trimmed.toLowerCase()) ?? matches[0];
+            const best = matches.find((g) => g.name?.toLowerCase() === target.toLowerCase()) ?? matches[0];
             results.push({
               input,
               resolved: Boolean(best?.id),

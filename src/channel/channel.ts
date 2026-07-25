@@ -363,8 +363,13 @@ export const zaloConnectPlugin: ChannelPlugin<ResolvedZaloConnectAccount> = {
           results.push({ input, resolved: false, note: "empty input" });
           continue;
         }
-        if (/^\d+$/.test(trimmed)) {
-          results.push({ input, resolved: true, id: trimmed });
+        // Models sometimes emit a channel-qualified target such as
+        // "'zalo-connect':123", "zalo-connect:123" or "oz:123". Strip the
+        // channel prefix (and any wrapping quotes) so the raw id/name below
+        // resolves instead of failing as "Unknown target".
+        const target = trimmed.replace(/^['"]?(?:zalo-connect|oz)['"]?\s*:\s*/i, "").replace(/^['"]+|['"]+$/g, "").trim();
+        if (/^\d+$/.test(target)) {
+          results.push({ input, resolved: true, id: target });
           continue;
         }
         try {
@@ -374,7 +379,7 @@ export const zaloConnectPlugin: ChannelPlugin<ResolvedZaloConnectAccount> = {
             const friends = await api.getAllFriends();
             const friendList = Array.isArray(friends) ? friends : [];
             const matches = friendList
-              .filter((f: any) => (f.displayName ?? "").toLowerCase().includes(trimmed.toLowerCase()))
+              .filter((f: any) => (f.displayName ?? "").toLowerCase().includes(target.toLowerCase()))
               .map((f: any) => ({ id: String(f.userId), name: f.displayName ?? undefined }));
             const best = matches[0];
             results.push({
@@ -401,10 +406,10 @@ export const zaloConnectPlugin: ChannelPlugin<ResolvedZaloConnectAccount> = {
               }
             }
             const matches = groups.filter(
-              (g) => (g.name ?? "").toLowerCase().includes(trimmed.toLowerCase()),
+              (g) => (g.name ?? "").toLowerCase().includes(target.toLowerCase()),
             );
             const best =
-              matches.find((g) => g.name?.toLowerCase() === trimmed.toLowerCase()) ?? matches[0];
+              matches.find((g) => g.name?.toLowerCase() === target.toLowerCase()) ?? matches[0];
             results.push({
               input,
               resolved: Boolean(best?.id),
