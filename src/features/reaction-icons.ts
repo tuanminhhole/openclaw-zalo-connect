@@ -2,22 +2,32 @@
  * Reaction icon resolver — turns whatever an operator wrote in config (or the model
  * passed to the add-reaction tool) into a reaction Zalo actually accepts.
  *
- * Zalo exposes 55 reactions, but its own wire format is legacy emoticon codes
- * (`:-*`, `/-rose`, `b-)`). zca-js maps those codes to the rType/source pair the API
- * wants; anything it does not recognise falls through to `rType: -1`, which Zalo
- * rejects — silently, from the caller's point of view. So an arbitrary emoji like 🦞
- * cannot be sent, and guessing produces a reaction that never appears.
+ * Zalo has two separate reaction mechanisms:
+ *
+ *  1. **Built-in reactions**, addressed by legacy emoticon codes (`:-*`, `/-rose`,
+ *     `b-)`). zca-js maps each code to a fixed rType. Their *artwork* no longer
+ *     matches the enum names it inherited — SURPRISE (`:-o`, rType 53) renders as a
+ *     kissing face today — so picking a built-in by name is a guess about what the
+ *     user will actually see.
+ *  2. **Custom reactions**, which is how Zalo Web sends an arbitrary emoji: it passes
+ *     the emoji itself as `rIcon` and a *hash of that emoji* as `rType`
+ *     (`generateReactionHash` below, ported from the web client). Zalo then renders
+ *     exactly that emoji.
+ *
+ * So emoji go through mechanism 2, not through a best-guess built-in. That is what
+ * makes 👀 render as 👀 rather than as whatever art the nearest built-in happens to
+ * carry this month, and it is why an emoji outside Zalo's own set can be sent at all.
  *
  * Accepted inputs, in priority order:
- *   1. a raw Zalo code            — ":-*", "b-)", "/-rose"
- *   2. a reaction name            — "kiss", "sunglasses", "tears_of_joy", "tears-of-joy"
- *   3. an emoji we can map        — "😘", "😎", "🌹"
+ *   1. a raw Zalo code            — ":-*", "b-)", "/-rose"      → built-in
+ *   2. a reaction name            — "kiss", "sunglasses"         → built-in
+ *   3. any emoji                  — "👀", "😎", "🔥"             → custom reaction
  *
  * Unknown input returns undefined so callers can say so instead of firing a request
  * that cannot work.
  */
 
-import { Reactions } from "zca-js";
+import { Reactions, type CustomReaction } from "zca-js";
 
 /** Every wire code zca-js knows, for pass-through of raw codes. */
 const VALID_CODES: ReadonlySet<string> = new Set(Object.values(Reactions) as string[]);
@@ -38,65 +48,45 @@ const BY_NAME: Record<string, Reactions> = Object.fromEntries(
 );
 
 /**
- * Emoji → nearest Zalo reaction. Zalo draws its own art, so these are the closest
- * match rather than an exact glyph. Entries that carry U+FE0F (❤️, ✌️, ☀️) are listed
- * both with and without the variation selector, since either can arrive from config.
+ * Numeric type Zalo Web assigns to an emoji reaction: a DJB2-style hash over UTF-16
+ * code units, truncated to int32 each round, then made positive. Ported verbatim from
+ * the web client so our rType matches what a real Zalo client would send for the same
+ * emoji — a mismatch shows up as a reaction that silently never appears.
  */
-const BY_EMOJI: Record<string, Reactions> = {
-  "👍": Reactions.LIKE,
-  "👎": Reactions.DISLIKE,
-  "❤️": Reactions.HEART,
-  "❤": Reactions.HEART,
-  "💔": Reactions.BROKEN_HEART,
-  "😆": Reactions.HAHA,
-  "😂": Reactions.TEARS_OF_JOY,
-  "🤣": Reactions.BIG_LAUGH,
-  "😮": Reactions.WOW,
-  "😲": Reactions.WOW,
-  "😯": Reactions.SURPRISE,
-  "👀": Reactions.SURPRISE,
-  "😢": Reactions.CRY,
-  "😭": Reactions.VERY_SAD,
-  "😠": Reactions.ANGRY,
-  "😡": Reactions.ANGRY_FACE,
-  "😘": Reactions.KISS,
-  "😍": Reactions.LOVE,
-  "🥰": Reactions.LOVE_YOU,
-  "😉": Reactions.WINK,
-  "😕": Reactions.CONFUSED,
-  "😎": Reactions.SUNGLASSES,
-  "🤓": Reactions.NERD,
-  "😃": Reactions.BIG_SMILE,
-  "😄": Reactions.BIG_SMILE,
-  "😐": Reactions.NEUTRAL,
-  "😞": Reactions.SAD_FACE,
-  "😔": Reactions.SAD,
-  "🙁": Reactions.SAD2,
-  "☹️": Reactions.SAD2,
-  "😳": Reactions.EMBARRASSED,
-  "😨": Reactions.AFRAID,
-  "😩": Reactions.ANGUISH,
-  "🤐": Reactions.SILENT,
-  "😴": Reactions.SLEEPY,
-  "😅": Reactions.WIPE,
-  "🤑": Reactions.RICH,
-  "👌": Reactions.OK,
-  "✌️": Reactions.PEACE,
-  "✌": Reactions.PEACE,
-  "👊": Reactions.PUNCH,
-  "👏": Reactions.HANDCLAP,
-  "🙏": Reactions.PRAY,
-  "👋": Reactions.BYE,
-  "🚫": Reactions.NO,
-  "🌹": Reactions.ROSE,
-  "💩": Reactions.SHIT,
-  "💣": Reactions.BOMB,
-  "🎂": Reactions.BIRTHDAY,
-  "☀️": Reactions.SUN,
-  "☀": Reactions.SUN,
-  "🍺": Reactions.BEER,
-  "🍻": Reactions.BEER,
+export function generateReactionHash(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+/**
+ * Two emoji Zalo Web ships as fixed types rather than hashing. Use its numbers so
+ * these land in the same bucket as a reaction sent from the official client.
+ */
+const FIXED_EMOJI_TYPES: Record<string, number> = {
+  "👏": 100,
+  "🎉": 101,
 };
+
+/** Reaction source id; every built-in in zca-js uses 6, and custom reactions ride the same endpoint. */
+const REACTION_SOURCE = 6;
+
+/** Build the custom-reaction payload Zalo expects for an arbitrary emoji. */
+function customReaction(icon: string): CustomReaction {
+  return { rType: FIXED_EMOJI_TYPES[icon] ?? generateReactionHash(icon), source: REACTION_SOURCE, icon };
+}
+
+/**
+ * Does this look like an emoji (or other pictograph) rather than a legacy emoticon
+ * code? Zalo's own codes are pure ASCII punctuation, so any non-ASCII input is an
+ * emoji and belongs on the custom-reaction path.
+ */
+function looksLikeEmoji(s: string): boolean {
+  return /[^\x00-\x7F]/.test(s);
+}
 
 /** Extra spellings that are neither the enum name nor an emoji. */
 const EXTRA_ALIASES: Record<string, Reactions> = {
@@ -106,7 +96,6 @@ const EXTRA_ALIASES: Record<string, Reactions> = {
   laugh: Reactions.HAHA,
   lol: Reactions.BIG_LAUGH,
   surprised: Reactions.WOW,
-  eyes: Reactions.SURPRISE,
   clap: Reactions.HANDCLAP,
   thanks: Reactions.THANKS,
   "thank-you": Reactions.THANKS,
@@ -118,16 +107,18 @@ const EXTRA_ALIASES: Record<string, Reactions> = {
 const ALIASES: Record<string, Reactions> = { ...BY_NAME, ...EXTRA_ALIASES };
 
 /**
- * Resolve config/tool input to a reaction code, or undefined when nothing matches.
- * Emoji lookup is case-preserving; names are matched case-insensitively.
+ * Resolve config/tool input to something api.addReaction accepts, or undefined when
+ * nothing matches. Raw codes and names give a built-in reaction; an emoji gives a
+ * custom reaction carrying that exact glyph. Names are matched case-insensitively.
  */
-export function resolveReactionIcon(raw: string): Reactions | undefined {
+export function resolveReactionIcon(raw: string): Reactions | CustomReaction | undefined {
   const trimmed = (raw ?? "").trim();
   if (!trimmed) return undefined;
   if (VALID_CODES.has(trimmed)) return trimmed as Reactions;
-  const byEmoji = BY_EMOJI[trimmed];
-  if (byEmoji !== undefined) return byEmoji;
-  return ALIASES[trimmed.toLowerCase()];
+  const byName = ALIASES[trimmed.toLowerCase()];
+  if (byName !== undefined) return byName;
+  if (looksLikeEmoji(trimmed)) return customReaction(trimmed);
+  return undefined;
 }
 
 /** Names accepted by resolveReactionIcon, for error messages and docs. */

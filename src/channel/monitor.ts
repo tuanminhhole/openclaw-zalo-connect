@@ -1911,7 +1911,13 @@ export async function monitorZaloConnectProvider(
         const fromUid = reaction.data.uidFrom;
         const threadId = reaction.threadId;
         const isGroup = reaction.isGroup;
-        logVerbose(core, runtime, `[${account.accountId}] reaction: ${icon} from ${fromUid} in ${isGroup ? "group" : "dm"} ${threadId}`);
+        // rType/source are logged too: Zalo's built-in artwork no longer matches the
+        // enum names zca-js inherited, so the wire values are what identify a reaction.
+        logVerbose(
+          core,
+          runtime,
+          `[${account.accountId}] reaction: ${icon} (rType=${reaction.data.content?.rType} source=${reaction.data.content?.source}) from ${fromUid} in ${isGroup ? "group" : "dm"} ${threadId}`,
+        );
       });
 
       // Typing events from other users

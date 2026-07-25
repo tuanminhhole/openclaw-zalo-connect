@@ -55025,15 +55025,30 @@ var init_name_trigger = __esm({
 });
 
 // src/features/reaction-icons.ts
+function generateReactionHash(str) {
+  let hash2 = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash2 = (hash2 << 5) - hash2 + str.charCodeAt(i);
+    hash2 |= 0;
+  }
+  return Math.abs(hash2);
+}
+function customReaction(icon) {
+  return { rType: FIXED_EMOJI_TYPES[icon] ?? generateReactionHash(icon), source: REACTION_SOURCE, icon };
+}
+function looksLikeEmoji(s) {
+  return /[^\x00-\x7F]/.test(s);
+}
 function resolveReactionIcon(raw) {
   const trimmed = (raw ?? "").trim();
   if (!trimmed) return void 0;
   if (VALID_CODES.has(trimmed)) return trimmed;
-  const byEmoji = BY_EMOJI[trimmed];
-  if (byEmoji !== void 0) return byEmoji;
-  return ALIASES[trimmed.toLowerCase()];
+  const byName = ALIASES[trimmed.toLowerCase()];
+  if (byName !== void 0) return byName;
+  if (looksLikeEmoji(trimmed)) return customReaction(trimmed);
+  return void 0;
 }
-var VALID_CODES, BY_NAME, BY_EMOJI, EXTRA_ALIASES, ALIASES;
+var VALID_CODES, BY_NAME, FIXED_EMOJI_TYPES, REACTION_SOURCE, EXTRA_ALIASES, ALIASES;
 var init_reaction_icons = __esm({
   "src/features/reaction-icons.ts"() {
     "use strict";
@@ -55049,61 +55064,11 @@ var init_reaction_icons = __esm({
         ];
       })
     );
-    BY_EMOJI = {
-      "\u{1F44D}": Reactions.LIKE,
-      "\u{1F44E}": Reactions.DISLIKE,
-      "\u2764\uFE0F": Reactions.HEART,
-      "\u2764": Reactions.HEART,
-      "\u{1F494}": Reactions.BROKEN_HEART,
-      "\u{1F606}": Reactions.HAHA,
-      "\u{1F602}": Reactions.TEARS_OF_JOY,
-      "\u{1F923}": Reactions.BIG_LAUGH,
-      "\u{1F62E}": Reactions.WOW,
-      "\u{1F632}": Reactions.WOW,
-      "\u{1F62F}": Reactions.SURPRISE,
-      "\u{1F440}": Reactions.SURPRISE,
-      "\u{1F622}": Reactions.CRY,
-      "\u{1F62D}": Reactions.VERY_SAD,
-      "\u{1F620}": Reactions.ANGRY,
-      "\u{1F621}": Reactions.ANGRY_FACE,
-      "\u{1F618}": Reactions.KISS,
-      "\u{1F60D}": Reactions.LOVE,
-      "\u{1F970}": Reactions.LOVE_YOU,
-      "\u{1F609}": Reactions.WINK,
-      "\u{1F615}": Reactions.CONFUSED,
-      "\u{1F60E}": Reactions.SUNGLASSES,
-      "\u{1F913}": Reactions.NERD,
-      "\u{1F603}": Reactions.BIG_SMILE,
-      "\u{1F604}": Reactions.BIG_SMILE,
-      "\u{1F610}": Reactions.NEUTRAL,
-      "\u{1F61E}": Reactions.SAD_FACE,
-      "\u{1F614}": Reactions.SAD,
-      "\u{1F641}": Reactions.SAD2,
-      "\u2639\uFE0F": Reactions.SAD2,
-      "\u{1F633}": Reactions.EMBARRASSED,
-      "\u{1F628}": Reactions.AFRAID,
-      "\u{1F629}": Reactions.ANGUISH,
-      "\u{1F910}": Reactions.SILENT,
-      "\u{1F634}": Reactions.SLEEPY,
-      "\u{1F605}": Reactions.WIPE,
-      "\u{1F911}": Reactions.RICH,
-      "\u{1F44C}": Reactions.OK,
-      "\u270C\uFE0F": Reactions.PEACE,
-      "\u270C": Reactions.PEACE,
-      "\u{1F44A}": Reactions.PUNCH,
-      "\u{1F44F}": Reactions.HANDCLAP,
-      "\u{1F64F}": Reactions.PRAY,
-      "\u{1F44B}": Reactions.BYE,
-      "\u{1F6AB}": Reactions.NO,
-      "\u{1F339}": Reactions.ROSE,
-      "\u{1F4A9}": Reactions.SHIT,
-      "\u{1F4A3}": Reactions.BOMB,
-      "\u{1F382}": Reactions.BIRTHDAY,
-      "\u2600\uFE0F": Reactions.SUN,
-      "\u2600": Reactions.SUN,
-      "\u{1F37A}": Reactions.BEER,
-      "\u{1F37B}": Reactions.BEER
+    FIXED_EMOJI_TYPES = {
+      "\u{1F44F}": 100,
+      "\u{1F389}": 101
     };
+    REACTION_SOURCE = 6;
     EXTRA_ALIASES = {
       thumbsup: Reactions.LIKE,
       "thumbs-up": Reactions.LIKE,
@@ -55111,7 +55076,6 @@ var init_reaction_icons = __esm({
       laugh: Reactions.HAHA,
       lol: Reactions.BIG_LAUGH,
       surprised: Reactions.WOW,
-      eyes: Reactions.SURPRISE,
       clap: Reactions.HANDCLAP,
       thanks: Reactions.THANKS,
       "thank-you": Reactions.THANKS,
@@ -63718,7 +63682,11 @@ async function monitorZaloConnectProvider(options) {
         const fromUid = reaction.data.uidFrom;
         const threadId = reaction.threadId;
         const isGroup = reaction.isGroup;
-        logVerbose(core, runtime2, `[${account.accountId}] reaction: ${icon} from ${fromUid} in ${isGroup ? "group" : "dm"} ${threadId}`);
+        logVerbose(
+          core,
+          runtime2,
+          `[${account.accountId}] reaction: ${icon} (rType=${reaction.data.content?.rType} source=${reaction.data.content?.source}) from ${fromUid} in ${isGroup ? "group" : "dm"} ${threadId}`
+        );
       });
       api.listener.on("typing", (typing) => {
         lastListenerEventAt = Date.now();

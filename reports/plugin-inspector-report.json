@@ -1,0 +1,568 @@
+{
+  "generatedAt": "deterministic",
+  "targetOpenClaw": {
+    "configuredPath": null,
+    "status": "disabled",
+    "compatRecords": [],
+    "compatRecordStatuses": {},
+    "hookNames": [],
+    "apiRegistrars": [],
+    "capturedRegistrars": [],
+    "sdkExports": [],
+    "reservedSdkExports": [],
+    "supportedFacadeSdkExports": [],
+    "publicPluginOwnedSdkExports": [],
+    "manifestFields": [],
+    "manifestContractFields": []
+  },
+  "status": "pass",
+  "summary": {
+    "breakageCount": 0,
+    "warningCount": 0,
+    "deprecationWarningCount": 0,
+    "issueCount": 0
+  },
+  "fixtures": [
+    {
+      "id": "openclaw-zalo-connect",
+      "name": "OpenClaw Zalo Connect",
+      "priority": "high",
+      "seams": [
+        "dynamic-tool"
+      ],
+      "why": "local OpenClaw plugin root",
+      "status": "ok",
+      "hooks": [],
+      "hookDetails": [],
+      "registrations": [
+        "registerChannel",
+        "registerTool"
+      ],
+      "registrationDetails": [
+        {
+          "name": "registerChannel",
+          "file": "dist/index.js",
+          "line": 79651,
+          "ref": "dist/index.js:79651"
+        },
+        {
+          "name": "registerChannel",
+          "file": "index.ts",
+          "line": 16,
+          "ref": "index.ts:16"
+        },
+        {
+          "name": "registerTool",
+          "file": "dist/index.js",
+          "line": 79652,
+          "ref": "dist/index.js:79652"
+        },
+        {
+          "name": "registerTool",
+          "file": "index.ts",
+          "line": 19,
+          "ref": "index.ts:19"
+        }
+      ],
+      "manifestContracts": [
+        "tools"
+      ],
+      "manifestFiles": [
+        "openclaw.plugin.json"
+      ],
+      "sourceFiles": [
+        "dist/index.js",
+        "index.ts",
+        "src/channel/channel.ts",
+        "src/channel/file-downloader.ts",
+        "src/channel/image-downloader.ts",
+        "src/channel/monitor.ts",
+        "src/channel/onboarding.ts",
+        "src/channel/probe.ts",
+        "src/channel/send.ts",
+        "src/channel/thread-queue.ts",
+        "src/client/accounts.ts",
+        "src/client/credentials.ts",
+        "src/client/friend-request-store.ts",
+        "src/client/qr-display.ts",
+        "src/client/zalo-client.ts",
+        "src/config/config-manager.ts",
+        "src/config/config-schema.ts",
+        "src/features/auto-unsend.ts",
+        "src/features/group-event.ts",
+        "src/features/group-id-cache.ts",
+        "src/features/injection-guard.ts",
+        "src/features/msg-id-store.ts",
+        "src/features/name-trigger.ts",
+        "src/features/passive-collector.ts",
+        "src/features/quote-reply.ts",
+        "src/features/reaction-ack.ts",
+        "src/features/reaction-icons.ts",
+        "src/features/read-receipt.ts",
+        "src/features/recent-tool-text.ts",
+        "src/features/sticker.ts",
+        "src/media/image-metadata.ts",
+        "src/parsing/mention-parser.ts",
+        "src/runtime/bridge.ts",
+        "src/runtime/group-policy.ts",
+        "src/runtime/runtime.ts",
+        "src/runtime/status-issues.ts",
+        "src/runtime/types.ts",
+        "src/safety/output-filter.ts",
+        "src/safety/thread-sandbox.ts",
+        "src/safety/url-validator.ts",
+        "src/tools/tool.ts",
+        "vitest.config.ts"
+      ],
+      "pluginManifests": [
+        {
+          "path": "openclaw.plugin.json",
+          "id": "zalo-connect",
+          "name": "OpenClaw Zalo Connect",
+          "version": "3.0.15",
+          "keys": [
+            "activation",
+            "author",
+            "channelConfigs",
+            "channels",
+            "compat",
+            "configSchema",
+            "contracts",
+            "description",
+            "homepage",
+            "icon",
+            "id",
+            "kind",
+            "license",
+            "name",
+            "version"
+          ],
+          "contracts": [
+            "tools"
+          ],
+          "providerAuthEnvVars": {},
+          "channelEnvVars": {},
+          "activation": {
+            "onStartup": true
+          }
+        }
+      ],
+      "securityManifests": [],
+      "package": {
+        "path": "package.json",
+        "name": "openclaw-zalo-connect",
+        "version": "3.0.15",
+        "type": "module",
+        "main": "dist/index.js",
+        "npmPack": {
+          "advertised": false,
+          "private": false,
+          "filesMode": "allowlist",
+          "files": [
+            "dist",
+            "src",
+            "docs",
+            "openclaw.plugin.json",
+            "index.ts",
+            "tsconfig.json",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE"
+          ],
+          "invalidFileSpecs": []
+        },
+        "dependencies": [
+          "@sinclair/typebox",
+          "image-size",
+          "jsqr",
+          "pngjs",
+          "qrcode-terminal",
+          "zca-js",
+          "zod"
+        ],
+        "peerDependencies": [
+          "openclaw"
+        ],
+        "optionalDependencies": [],
+        "openclaw": {
+          "extensions": [
+            "./index.ts"
+          ],
+          "runtimeExtensions": [
+            "./dist/index.js"
+          ],
+          "setupEntry": null,
+          "compatPluginApi": ">=2026.5.7",
+          "buildOpenClawVersion": "2026.5.7",
+          "buildPluginSdkVersion": "2026.5.7",
+          "install": {
+            "clawhubSpec": "tuanminhhole/openclaw-zalo-connect",
+            "npmSpec": null,
+            "defaultChoice": "clawhub",
+            "minHostVersion": ">=2026.5.7"
+          },
+          "release": {
+            "publishToClawHub": true,
+            "publishToNpm": false
+          },
+          "unsupportedMetadata": [],
+          "entrypoints": [
+            {
+              "kind": "extension",
+              "specifier": "./index.ts",
+              "relativePath": "index.ts",
+              "exists": true,
+              "requiresBuild": false
+            },
+            {
+              "kind": "runtimeExtension",
+              "specifier": "./dist/index.js",
+              "relativePath": "dist/index.js",
+              "exists": true,
+              "requiresBuild": true
+            }
+          ]
+        }
+      },
+      "packages": [
+        {
+          "path": "package.json",
+          "name": "openclaw-zalo-connect",
+          "version": "3.0.15",
+          "type": "module",
+          "main": "dist/index.js",
+          "npmPack": {
+            "advertised": false,
+            "private": false,
+            "filesMode": "allowlist",
+            "files": [
+              "dist",
+              "src",
+              "docs",
+              "openclaw.plugin.json",
+              "index.ts",
+              "tsconfig.json",
+              "README.md",
+              "CHANGELOG.md",
+              "LICENSE"
+            ],
+            "invalidFileSpecs": []
+          },
+          "dependencies": [
+            "@sinclair/typebox",
+            "image-size",
+            "jsqr",
+            "pngjs",
+            "qrcode-terminal",
+            "zca-js",
+            "zod"
+          ],
+          "peerDependencies": [
+            "openclaw"
+          ],
+          "optionalDependencies": [],
+          "openclaw": {
+            "extensions": [
+              "./index.ts"
+            ],
+            "runtimeExtensions": [
+              "./dist/index.js"
+            ],
+            "setupEntry": null,
+            "compatPluginApi": ">=2026.5.7",
+            "buildOpenClawVersion": "2026.5.7",
+            "buildPluginSdkVersion": "2026.5.7",
+            "install": {
+              "clawhubSpec": "tuanminhhole/openclaw-zalo-connect",
+              "npmSpec": null,
+              "defaultChoice": "clawhub",
+              "minHostVersion": ">=2026.5.7"
+            },
+            "release": {
+              "publishToClawHub": true,
+              "publishToNpm": false
+            },
+            "unsupportedMetadata": [],
+            "entrypoints": [
+              {
+                "kind": "extension",
+                "specifier": "./index.ts",
+                "relativePath": "index.ts",
+                "exists": true,
+                "requiresBuild": false
+              },
+              {
+                "kind": "runtimeExtension",
+                "specifier": "./dist/index.js",
+                "relativePath": "dist/index.js",
+                "exists": true,
+                "requiresBuild": true
+              }
+            ]
+          }
+        }
+      ],
+      "sdkImports": [
+        "openclaw/plugin-sdk/agent-config-primitives",
+        "openclaw/plugin-sdk/allow-from",
+        "openclaw/plugin-sdk/channel-config-primitives",
+        "openclaw/plugin-sdk/channel-contract",
+        "openclaw/plugin-sdk/channel-core",
+        "openclaw/plugin-sdk/channel-feedback",
+        "openclaw/plugin-sdk/channel-plugin-common",
+        "openclaw/plugin-sdk/channel-policy",
+        "openclaw/plugin-sdk/channel-reply-pipeline",
+        "openclaw/plugin-sdk/config-runtime",
+        "openclaw/plugin-sdk/plugin-entry",
+        "openclaw/plugin-sdk/runtime",
+        "openclaw/plugin-sdk/setup"
+      ],
+      "sdkImportDetails": [
+        {
+          "specifier": "openclaw/plugin-sdk/agent-config-primitives",
+          "file": "dist/index.js",
+          "line": 63950,
+          "ref": "dist/index.js:63950"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/agent-config-primitives",
+          "file": "src/config/config-schema.ts",
+          "line": 18,
+          "ref": "src/config/config-schema.ts:18"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/allow-from",
+          "file": "dist/index.js",
+          "line": 62229,
+          "ref": "dist/index.js:62229"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/allow-from",
+          "file": "src/channel/monitor.ts",
+          "line": 5,
+          "ref": "src/channel/monitor.ts:5"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/channel-config-primitives",
+          "file": "dist/index.js",
+          "line": 63949,
+          "ref": "dist/index.js:63949"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/channel-config-primitives",
+          "file": "src/config/config-schema.ts",
+          "line": 17,
+          "ref": "src/config/config-schema.ts:17"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/channel-contract",
+          "file": "src/channel/channel.ts",
+          "line": 6,
+          "ref": "src/channel/channel.ts:6"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/channel-contract",
+          "file": "src/runtime/status-issues.ts",
+          "line": 2,
+          "ref": "src/runtime/status-issues.ts:2"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/channel-core",
+          "file": "src/channel/channel.ts",
+          "line": 8,
+          "ref": "src/channel/channel.ts:8"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/channel-core",
+          "file": "src/channel/onboarding.ts",
+          "line": 5,
+          "ref": "src/channel/onboarding.ts:5"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/channel-core",
+          "file": "src/client/accounts.ts",
+          "line": 1,
+          "ref": "src/client/accounts.ts:1"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/channel-feedback",
+          "file": "dist/index.js",
+          "line": 62228,
+          "ref": "dist/index.js:62228"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/channel-feedback",
+          "file": "src/channel/monitor.ts",
+          "line": 4,
+          "ref": "src/channel/monitor.ts:4"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/channel-plugin-common",
+          "file": "dist/index.js",
+          "line": 63885,
+          "ref": "dist/index.js:63885"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/channel-plugin-common",
+          "file": "dist/index.js",
+          "line": 63889,
+          "ref": "dist/index.js:63889"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/channel-plugin-common",
+          "file": "dist/index.js",
+          "line": 78589,
+          "ref": "dist/index.js:78589"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/channel-plugin-common",
+          "file": "src/channel/channel.ts",
+          "line": 18,
+          "ref": "src/channel/channel.ts:18"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/channel-plugin-common",
+          "file": "src/channel/channel.ts",
+          "line": 7,
+          "ref": "src/channel/channel.ts:7"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/channel-plugin-common",
+          "file": "src/channel/onboarding.ts",
+          "line": 10,
+          "ref": "src/channel/onboarding.ts:10"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/channel-plugin-common",
+          "file": "src/client/accounts.ts",
+          "line": 2,
+          "ref": "src/client/accounts.ts:2"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/channel-plugin-common",
+          "file": "src/runtime/runtime.ts",
+          "line": 1,
+          "ref": "src/runtime/runtime.ts:1"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/channel-policy",
+          "file": "src/channel/channel.ts",
+          "line": 9,
+          "ref": "src/channel/channel.ts:9"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/channel-reply-pipeline",
+          "file": "dist/index.js",
+          "line": 62227,
+          "ref": "dist/index.js:62227"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/channel-reply-pipeline",
+          "file": "src/channel/monitor.ts",
+          "line": 3,
+          "ref": "src/channel/monitor.ts:3"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/config-runtime",
+          "file": "src/channel/monitor.ts",
+          "line": 1,
+          "ref": "src/channel/monitor.ts:1"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/plugin-entry",
+          "file": "dist/index.js",
+          "line": 63874,
+          "ref": "dist/index.js:63874"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/plugin-entry",
+          "file": "index.ts",
+          "line": 1,
+          "ref": "index.ts:1"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/plugin-entry",
+          "file": "index.ts",
+          "line": 2,
+          "ref": "index.ts:2"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/runtime",
+          "file": "src/channel/monitor.ts",
+          "line": 2,
+          "ref": "src/channel/monitor.ts:2"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/setup",
+          "file": "dist/index.js",
+          "line": 78594,
+          "ref": "dist/index.js:78594"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/setup",
+          "file": "src/channel/onboarding.ts",
+          "line": 15,
+          "ref": "src/channel/onboarding.ts:15"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/setup",
+          "file": "src/channel/onboarding.ts",
+          "line": 4,
+          "ref": "src/channel/onboarding.ts:4"
+        },
+        {
+          "specifier": "openclaw/plugin-sdk/setup",
+          "file": "src/channel/onboarding.ts",
+          "line": 6,
+          "ref": "src/channel/onboarding.ts:6"
+        }
+      ],
+      "sdkDeprecations": []
+    }
+  ],
+  "issues": [],
+  "contractProbes": [],
+  "logs": [
+    {
+      "fixture": "openclaw-zalo-connect",
+      "code": "seam-inventory",
+      "level": "log",
+      "message": "observed 0 hooks, 2 registrations, and 1 manifest contracts",
+      "evidence": [
+        "registration:registerChannel",
+        "registration:registerTool",
+        "manifestContract:tools"
+      ]
+    },
+    {
+      "fixture": "openclaw-zalo-connect",
+      "code": "package-metadata",
+      "level": "log",
+      "message": "selected package metadata for plugin contract checks",
+      "evidence": [
+        "package.json",
+        "openclaw-zalo-connect",
+        "version:3.0.15"
+      ]
+    },
+    {
+      "fixture": "openclaw-zalo-connect",
+      "code": "declarative-contracts",
+      "level": "log",
+      "message": "fixture declares manifest contracts that can be checked without executing plugin code",
+      "evidence": [
+        "tools"
+      ]
+    },
+    {
+      "fixture": "openclaw",
+      "code": "target-openclaw-unavailable",
+      "level": "log",
+      "message": "target OpenClaw checkout was not available, so compat record coverage was not checked",
+      "evidence": [
+        "not configured"
+      ]
+    }
+  ],
+  "decisions": []
+}

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Reactions } from "zca-js";
-import { resolveReactionIcon } from "../src/features/reaction-icons.js";
+import { resolveReactionIcon, generateReactionHash } from "../src/features/reaction-icons.js";
 
 describe("resolveReactionIcon", () => {
   it("passes a raw Zalo code straight through", () => {
@@ -17,27 +17,34 @@ describe("resolveReactionIcon", () => {
     expect(resolveReactionIcon("tearsofjoy")).toBe(Reactions.TEARS_OF_JOY);
   });
 
-  it("maps emoji to the nearest Zalo reaction", () => {
-    expect(resolveReactionIcon("😎")).toBe(Reactions.SUNGLASSES);
-    expect(resolveReactionIcon("👍")).toBe(Reactions.LIKE);
-    expect(resolveReactionIcon("🌹")).toBe(Reactions.ROSE);
-    expect(resolveReactionIcon("👀")).toBe(Reactions.SURPRISE);
+  it("sends an emoji as a custom reaction carrying that exact glyph", () => {
+    // Not the nearest built-in: Zalo's built-in artwork no longer matches the enum
+    // names, so 👀 resolved to SURPRISE used to render as a kissing face.
+    expect(resolveReactionIcon("👀")).toEqual({ rType: 1772451, source: 6, icon: "👀" });
+    expect(resolveReactionIcon("😎")).toEqual({ rType: 1772913, source: 6, icon: "😎" });
   });
 
-  it("accepts hearts with or without the variation selector", () => {
-    expect(resolveReactionIcon("❤️")).toBe(Reactions.HEART);
-    expect(resolveReactionIcon("❤")).toBe(Reactions.HEART);
+  it("uses the hash Zalo Web computes for the same emoji", () => {
+    expect(generateReactionHash("👀")).toBe(1772451);
+    expect(generateReactionHash("🔥")).toBe(1772680);
+  });
+
+  it("uses Zalo Web's fixed types for the two emoji it hardcodes", () => {
+    expect(resolveReactionIcon("👏")).toEqual({ rType: 100, source: 6, icon: "👏" });
+    expect(resolveReactionIcon("🎉")).toEqual({ rType: 101, source: 6, icon: "🎉" });
   });
 
   it("trims surrounding whitespace", () => {
-    expect(resolveReactionIcon("  😎  ")).toBe(Reactions.SUNGLASSES);
+    expect(resolveReactionIcon("  👀  ")).toEqual({ rType: 1772451, source: 6, icon: "👀" });
   });
 
-  it("returns undefined for emoji Zalo has no reaction for", () => {
-    // The whole point of the resolver: 🦞 cannot be sent, and guessing would produce
-    // an rType of -1 that Zalo rejects without the reaction ever appearing.
-    expect(resolveReactionIcon("🦞")).toBeUndefined();
-    expect(resolveReactionIcon("🐙")).toBeUndefined();
+  it("can send an emoji outside Zalo's built-in set", () => {
+    // The custom-reaction path is not limited to Zalo's own 55 reactions.
+    expect(resolveReactionIcon("🦞")).toEqual({ rType: 1772832, source: 6, icon: "🦞" });
+  });
+
+  it("returns undefined for an unknown ASCII token", () => {
+    expect(resolveReactionIcon("definitely-not-a-reaction")).toBeUndefined();
   });
 
   it("returns undefined for empty input", () => {

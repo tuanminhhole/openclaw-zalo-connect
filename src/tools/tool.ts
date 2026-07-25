@@ -19,6 +19,7 @@ import {
   UpdateSettingsType,
   AutoReplyScope,
   Urgency,
+  type CustomReaction,
 } from "zca-js";
 import { getApi as getAccountApi, getCurrentUid } from "../client/zalo-client.js";
 import { lookupCliMsgId } from "../features/msg-id-store.js";
@@ -466,8 +467,8 @@ export const ZaloConnectToolSchema = Type.Object(
 // ─── Reaction icon resolver ──────────────────────────────────────────────────
 
 // Falls back to the raw string so an unmapped-but-valid code still reaches zca-js;
-// see reaction-icons.ts for the full name/emoji/code table.
-function resolveReaction(raw: string): Reactions {
+// see reaction-icons.ts for how codes, names and emoji are resolved.
+function resolveReaction(raw: string): Reactions | CustomReaction {
   return resolveReactionIcon(raw) ?? (raw as Reactions);
 }
 
