@@ -22,6 +22,7 @@ import { getZaloConnectRuntime } from "../runtime/runtime.js";
 import { sendMessageZaloConnect } from "./send.js";
 import { getApi, getCurrentUid, getCurrentName, getApiSync, invalidateApi } from "../client/zalo-client.js";
 import { textMentionsAnyName } from "../features/name-trigger.js";
+import { getRuntimeNameTriggers } from "../runtime/name-triggers.js";
 import { resolveReactionIcon } from "../features/reaction-icons.js";
 import * as fs from "fs";
 import * as path from "path";
@@ -927,6 +928,9 @@ async function processMessage(
   const botNameTriggers = [
     getCurrentName(account.accountId),
     ...((account.config.nameTriggers ?? []).map((v) => String(v))),
+    // Runtime aliases pushed live by a sibling control plugin (e.g. Zalo Mod
+    // dashboard). In-memory, no openclaw.json write, so edits gate immediately.
+    ...getRuntimeNameTriggers(account.accountId),
   ];
   const wasNamed = isGroup && textMentionsAnyName(rawBody, botNameTriggers);
   const wasAddressed = wasMentioned || wasNamed;

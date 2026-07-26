@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createBridgeService, exposeBridgeService, publishBridgeInbound } from "../src/runtime/bridge.js";
 import { clearAllRuntimeGroupPolicies } from "../src/runtime/group-policy.js";
+import { clearAllRuntimeNameTriggers } from "../src/runtime/name-triggers.js";
 import { ACTIONS } from "../src/tools/tool.js";
 
 describe("plugin bridge service", () => {
@@ -41,7 +42,7 @@ describe("plugin bridge service", () => {
   it("exposes the service on the documented global handshake", () => {
     const service = exposeBridgeService();
     expect((globalThis as Record<string, unknown>).__zaloConnectBridgeService).toBe(service);
-    expect(service.version).toBe(3);
+    expect(service.version).toBe(4);
     delete (globalThis as Record<string, unknown>).__zaloConnectBridgeService;
   });
 
@@ -64,6 +65,28 @@ describe("plugin bridge service", () => {
     expect(await bridge.getGroupPolicy("acc2", "g1")).toBeUndefined();
     expect(await bridge.clearGroupPolicy("acc1", "g1")).toBe(true);
     expect(await bridge.getGroupPolicy("acc1", "g1")).toBeUndefined();
+  });
+
+  it("stores and de-dupes runtime name-trigger aliases in memory", async () => {
+    clearAllRuntimeNameTriggers();
+    const bridge = createBridgeService();
+
+    // No session → no display name; runtime aliases start empty.
+    const initial = await bridge.getNameTriggers("acc1");
+    expect(initial.triggers).toEqual([]);
+    expect(initial.effective).toEqual([]);
+
+    const set = await bridge.setNameTriggers("acc1", ["  Mkt ", "mei", "mkt", ""]);
+    // trimmed, blanks dropped, case-insensitive de-dupe, first spelling kept
+    expect(set.triggers).toEqual(["Mkt", "mei"]);
+    expect(await bridge.getNameTriggers("acc1")).toMatchObject({ triggers: ["Mkt", "mei"] });
+
+    // Per-account isolation: acc2 untouched.
+    expect((await bridge.getNameTriggers("acc2")).triggers).toEqual([]);
+
+    // Empty list clears the override.
+    expect((await bridge.setNameTriggers("acc1", [])).triggers).toEqual([]);
+    expect((await bridge.getNameTriggers("acc1")).triggers).toEqual([]);
   });
 
   it("rejects invalid runtime group policy", async () => {

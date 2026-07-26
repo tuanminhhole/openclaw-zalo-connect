@@ -6,6 +6,20 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 ## [Unreleased]
 
+## [3.0.16] — 2026-07-26
+
+### Thêm mới
+- **Name-trigger runtime cho chế độ im lặng (bridge v4).** Bot đang `silent`
+  (`requireMention`) trả lời khi được @nhắc HOẶC khi tin nhắn gọi đúng tên bot. Ngoài
+  tên Zalo tự nhận + alias trong config, nay có thêm lớp **override runtime** đẩy từ
+  plugin điều khiển (vd openclaw-zalo-mod): `src/runtime/name-triggers.ts` giữ map
+  `accountId → tên gọi[]` trong RAM và được gộp vào cổng name-gate ở `monitor.ts`. Giống
+  group-policy: **không ghi `openclaw.json`, không restart** — sửa là ăn ngay ở tin kế
+  tiếp; persistence thuộc về caller và replay sau khi gateway restart thật.
+- **Bridge service lên v4:** thêm `getNameTriggers(accountId)` (trả tên hiển thị tự nhận +
+  danh sách override + tập hiệu lực) và `setNameTriggers(accountId, list)`. Bổ sung thuần
+  (v3 giữ nguyên).
+
 ## [3.0.13] — 2026-07-25
 
 ### Sửa lỗi

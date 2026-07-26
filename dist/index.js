@@ -3672,10 +3672,10 @@ var require_core = __commonJS({
              *         }
              *     });
              */
-            extend: function(overrides) {
+            extend: function(overrides2) {
               var subtype = create(this);
-              if (overrides) {
-                subtype.mixIn(overrides);
+              if (overrides2) {
+                subtype.mixIn(overrides2);
               }
               if (!subtype.hasOwnProperty("init") || this.init === subtype.init) {
                 subtype.init = function() {
@@ -55024,6 +55024,42 @@ var init_name_trigger = __esm({
   }
 });
 
+// src/runtime/name-triggers.ts
+function normalizeAccountId5(accountId) {
+  return String(accountId || "default").trim() || "default";
+}
+function sanitizeTriggers(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const raw of list) {
+    const value = String(raw ?? "").trim();
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
+  }
+  return out;
+}
+function setRuntimeNameTriggers(accountId, list) {
+  const clean = sanitizeTriggers(list);
+  const id = normalizeAccountId5(accountId);
+  if (clean.length === 0) overrides.delete(id);
+  else overrides.set(id, clean);
+  return [...clean];
+}
+function getRuntimeNameTriggers(accountId) {
+  return [...overrides.get(normalizeAccountId5(accountId)) ?? []];
+}
+var overrides;
+var init_name_triggers = __esm({
+  "src/runtime/name-triggers.ts"() {
+    "use strict";
+    overrides = /* @__PURE__ */ new Map();
+  }
+});
+
 // src/features/reaction-icons.ts
 function generateReactionHash(str) {
   let hash2 = 0;
@@ -55925,14 +55961,14 @@ var init_thread_queue = __esm({
 });
 
 // src/runtime/group-policy.ts
-function normalizeAccountId5(accountId) {
+function normalizeAccountId6(accountId) {
   return String(accountId || "default").trim() || "default";
 }
 function normalizeGroupId(groupId) {
   return String(groupId || "").trim().replace(/^group:/, "");
 }
 function policyKey(accountId, groupId) {
-  return `${normalizeAccountId5(accountId)}|${normalizeGroupId(groupId)}`;
+  return `${normalizeAccountId6(accountId)}|${normalizeGroupId(groupId)}`;
 }
 function setRuntimeGroupPolicy(accountId, groupId, mode) {
   const normalizedGroupId = normalizeGroupId(groupId);
@@ -62157,9 +62193,24 @@ async function publishBridgeInbound(event) {
   }
   return handled;
 }
+function readNameTriggers(accountId) {
+  const displayName = getCurrentName(accountId);
+  const triggers = getRuntimeNameTriggers(accountId);
+  const seen = /* @__PURE__ */ new Set();
+  const effective = [];
+  for (const raw of [displayName, ...triggers]) {
+    const value = String(raw ?? "").trim();
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    effective.push(value);
+  }
+  return { displayName, triggers, effective };
+}
 function createBridgeService() {
   return {
-    version: 3,
+    version: 4,
     async getStatus(accountId) {
       return {
         connected: isAuthenticated(accountId),
@@ -62189,6 +62240,13 @@ function createBridgeService() {
     async clearGroupPolicy(accountId, groupId) {
       return clearRuntimeGroupPolicy(accountId, groupId);
     },
+    async getNameTriggers(accountId) {
+      return readNameTriggers(accountId);
+    },
+    async setNameTriggers(accountId, triggers) {
+      setRuntimeNameTriggers(accountId, triggers);
+      return readNameTriggers(accountId);
+    },
     subscribeInbound(handler) {
       inboundHandlers.add(handler);
       return () => inboundHandlers.delete(handler);
@@ -62207,6 +62265,7 @@ var init_bridge = __esm({
     init_tool();
     init_zalo_client();
     init_group_policy();
+    init_name_triggers();
     inboundHandlers = /* @__PURE__ */ new Set();
     seq = 0;
   }
@@ -62860,7 +62919,10 @@ ${effectiveContent}`;
   const wasMentioned = isGroup && selfUid ? (message.mentions ?? []).some((m) => m.uid === selfUid) : false;
   const botNameTriggers = [
     getCurrentName(account.accountId),
-    ...(account.config.nameTriggers ?? []).map((v) => String(v))
+    ...(account.config.nameTriggers ?? []).map((v) => String(v)),
+    // Runtime aliases pushed live by a sibling control plugin (e.g. Zalo Mod
+    // dashboard). In-memory, no openclaw.json write, so edits gate immediately.
+    ...getRuntimeNameTriggers(account.accountId)
   ];
   const wasNamed = isGroup && textMentionsAnyName(rawBody, botNameTriggers);
   const wasAddressed = wasMentioned || wasNamed;
@@ -63828,6 +63890,7 @@ var init_monitor = __esm({
     init_send();
     init_zalo_client();
     init_name_trigger();
+    init_name_triggers();
     init_reaction_icons();
     init_image_metadata();
     init_image_downloader();
@@ -63880,7 +63943,7 @@ import {
   deleteAccountFromConfigSection,
   formatPairingApproveHint,
   migrateBaseNameToDefaultAccount,
-  normalizeAccountId as normalizeAccountId6,
+  normalizeAccountId as normalizeAccountId7,
   setAccountEnabledInConfigSection
 } from "openclaw/plugin-sdk/channel-plugin-common";
 
@@ -79223,7 +79286,7 @@ var zaloConnectPlugin = {
     resolveReplyToMode: () => "off"
   },
   setup: {
-    resolveAccountId: ({ accountId }) => normalizeAccountId6(accountId),
+    resolveAccountId: ({ accountId }) => normalizeAccountId7(accountId),
     applyAccountName: ({ cfg, accountId, name }) => applyAccountNameToChannelSection({ cfg, channelKey: "zalo-connect", accountId, name }),
     validateInput: () => null,
     applyAccountConfig: ({ cfg, accountId, input }) => {

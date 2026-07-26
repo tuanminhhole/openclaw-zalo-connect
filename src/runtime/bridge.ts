@@ -11,7 +11,7 @@
  */
 
 import { executeZaloConnectTool, ACTIONS } from "../tools/tool.js";
-import { getCurrentUid, isAuthenticated } from "../client/zalo-client.js";
+import { getCurrentUid, getCurrentName, isAuthenticated } from "../client/zalo-client.js";
 import {
   clearRuntimeGroupPolicy,
   getRuntimeGroupPolicy,
@@ -19,6 +19,7 @@ import {
   type RuntimeGroupMode,
   type RuntimeGroupPolicy,
 } from "./group-policy.js";
+import { getRuntimeNameTriggers, setRuntimeNameTriggers } from "./name-triggers.js";
 
 export type ZaloConnectBridgeAction = { action: string } & Record<string, unknown>;
 
@@ -63,9 +64,35 @@ export async function publishBridgeInbound(event: ZaloConnectBridgeInboundEvent)
   return handled;
 }
 
+/** Silent-mode name gate view: the bot's own display name plus runtime aliases. */
+export type ZaloConnectNameTriggers = {
+  /** The bot's own Zalo display name for this account (auto, read-only). */
+  displayName: string | null;
+  /** Runtime alias overrides pushed by a control plugin (editable). */
+  triggers: string[];
+  /** What actually gates: displayName + triggers, de-duped. */
+  effective: string[];
+};
+
+function readNameTriggers(accountId?: string): ZaloConnectNameTriggers {
+  const displayName = getCurrentName(accountId);
+  const triggers = getRuntimeNameTriggers(accountId);
+  const seen = new Set<string>();
+  const effective: string[] = [];
+  for (const raw of [displayName, ...triggers]) {
+    const value = String(raw ?? "").trim();
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    effective.push(value);
+  }
+  return { displayName, triggers, effective };
+}
+
 export type ZaloConnectBridgeService = {
-  /** Version 3 adds pre-dispatch inbound claiming (additive to v2). */
-  version: 3;
+  /** Version 4 adds the silent-mode name-trigger gate (additive to v3). */
+  version: 4;
   getStatus(accountId?: string): Promise<{
     connected: boolean;
     accountId?: string;
@@ -86,6 +113,18 @@ export type ZaloConnectBridgeService = {
   setGroupPolicy(accountId: string | undefined, groupId: string, mode: RuntimeGroupMode): Promise<RuntimeGroupPolicy>;
   getGroupPolicy(accountId: string | undefined, groupId: string): Promise<RuntimeGroupPolicy | undefined>;
   clearGroupPolicy(accountId: string | undefined, groupId: string): Promise<boolean>;
+  /**
+   * Read the silent-mode name gate for an account: the bot's own Zalo display
+   * name (auto) plus the runtime alias overrides addressing it by name.
+   */
+  getNameTriggers(accountId?: string): Promise<ZaloConnectNameTriggers>;
+  /**
+   * Replace the runtime alias overrides for this account. In-memory only: never
+   * writes openclaw.json, so the gateway never restarts and the new aliases
+   * gate on the very next message. Persistence belongs to the caller, which
+   * replays its aliases after a real gateway restart.
+   */
+  setNameTriggers(accountId: string | undefined, triggers: string[]): Promise<ZaloConnectNameTriggers>;
   /** Receive allowed inbound messages before silent/mention gating (zero-token). */
   subscribeInbound(handler: InboundHandler): () => void;
 };
@@ -94,7 +133,7 @@ let seq = 0;
 
 export function createBridgeService(): ZaloConnectBridgeService {
   return {
-    version: 3,
+    version: 4,
 
     async getStatus(accountId) {
       return {
@@ -129,6 +168,15 @@ export function createBridgeService(): ZaloConnectBridgeService {
 
     async clearGroupPolicy(accountId, groupId) {
       return clearRuntimeGroupPolicy(accountId, groupId);
+    },
+
+    async getNameTriggers(accountId) {
+      return readNameTriggers(accountId);
+    },
+
+    async setNameTriggers(accountId, triggers) {
+      setRuntimeNameTriggers(accountId, triggers);
+      return readNameTriggers(accountId);
     },
 
     subscribeInbound(handler) {
