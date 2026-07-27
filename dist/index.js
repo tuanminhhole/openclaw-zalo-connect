@@ -63638,8 +63638,13 @@ async function monitorZaloConnectProvider(options) {
         maxPerThread: 10,
         maxAgeMs: 5 * 60 * 1e3,
         // 5 minutes
-        processingTimeoutMs: 3 * 60 * 1e3,
-        // 3 minutes
+        // GUI/computer-use turns (open app, screenshot, read screen, retry) routinely run
+        // 3-5+ minutes. The old 3-minute timeout fired mid-turn, logged an error, and let the
+        // thread drain a queued next message while the original handler kept running in the
+        // background — the real reply never got delivered to Zalo even though the agent
+        // finished correctly (dashboard session log showed it; the chat never got it).
+        processingTimeoutMs: 10 * 60 * 1e3,
+        // 10 minutes
         handler: (message) => processMessage(message, account, config2, core, runtime2, statusSink),
         onDrop: (threadId, dropped) => {
           logVerbose(core, runtime2, `[${account.accountId}] queue overflow: dropped oldest message in thread ${threadId} (msgId=${dropped.data.msgId ?? "?"})`);
