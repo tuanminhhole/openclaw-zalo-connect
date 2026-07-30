@@ -36,8 +36,18 @@ Tên người dùng và tên nhóm **tự động resolve** thành Zalo numeric 
 | `send-to-stranger` | `threadId`, `message` | Nhắn người chưa kết bạn |
 | `forward-message` | `msgId`, `threadIds` (array) | Chuyển tiếp đến nhiều hội thoại |
 | `delete-message` | `msgId`, `threadId`, `isGroup` | Xóa tin nhắn (chỉ phía mình: `onlyMe: true`) |
-| `undo-message` | `msgId`, `threadId`, `isGroup` | Thu hồi tin nhắn |
-| `add-reaction` | `msgId`, `threadId`, `isGroup`, `icon` | React: `heart` `like` `haha` `wow` `cry` `angry` `none` |
+| `undo-message` | `msgId`, `threadId`, `isGroup` | Thu hồi tin nhắn — xem ghi chú dưới bảng |
+| `add-reaction` | `msgId`, `threadId`, `isGroup`, `icon` | React bằng **emoji bất kỳ** (`👀` `🦞` `🔥`), tên reaction (`kiss` `sunglasses` `tears-of-joy`), hoặc mã Zalo thô (`:-*` `b-)` `/-rose`). `none`/`remove` để bỏ reaction |
+
+> **`add-reaction` — emoji bất kỳ đều được.** Zalo có hai cơ chế reaction: *built-in* (địa chỉ bằng mã
+> emoticon cũ, artwork không còn khớp tên enum — `SURPRISE` giờ hiện thành mặt nụ cười) và *custom*
+> (cách Zalo Web gửi emoji tuỳ ý: truyền chính emoji làm `rIcon` kèm **hash của emoji đó** làm
+> `rType`). Emoji đi đường custom nên `👀` hiện đúng là `👀`, kể cả emoji ngoài bộ của Zalo. Chi tiết
+> ở `src/features/reaction-icons.ts`. Input không nhận diện được thì trả về lỗi rõ ràng thay vì gửi
+> một request không thể chạy.
+>
+> **`undo-message` — lỗi đã biết, chưa fix.** Zalo API từ chối undo ("không tìm thấy ID") kể cả khi
+> `selfListen: true`. Cần thu hồi thì dùng `delete-message` (chỉ xoá phía mình, `onlyMe: true`).
 
 ---
 

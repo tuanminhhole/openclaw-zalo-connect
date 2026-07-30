@@ -61,20 +61,34 @@ Trong dashboard, chọn **Zalo cá nhân** khi tạo bot hoặc bấm **Đăng n
 Setup sẽ tự tải đúng release nếu máy chưa có plugin và dùng lại bản đã cài ở
 những lần đăng nhập sau.
 
-### Cách B — Cài release từ Git
+### Cách B — Cài từ ClawHub
 
-Máy cần có Git, Node.js 22+ và OpenClaw:
+Đây là đường cài mà Setup dùng, và cũng là cách gọn nhất khi làm thủ công:
 
 ```bash
-git clone --depth 1 --branch v3.0.1 \
+openclaw plugins install clawhub:openclaw-zalo-connect --acknowledge-clawhub-risk
+openclaw gateway restart
+```
+
+Không ghim version — ClawHub luôn trả về bản mới nhất. Muốn nâng cấp thì chạy lại đúng lệnh trên
+kèm `--force`.
+
+### Cách C — Cài release từ Git
+
+Khi cần ghim đúng một version (hoặc ClawHub không truy cập được). Máy cần Git, Node.js 22+ và
+OpenClaw:
+
+```bash
+git clone --depth 1 --branch main \
   https://github.com/tuanminhhole/openclaw-zalo-connect.git
 openclaw plugins install ./openclaw-zalo-connect
 openclaw gateway restart
 ```
 
-Release đã chứa bundle runtime hoàn chỉnh, không cần chạy `npm install`.
+Đổi `main` thành tag cụ thể (`v3.0.17`, …) nếu muốn ghim. Release đã chứa bundle runtime hoàn chỉnh,
+không cần chạy `npm install`.
 
-### Cách C — Link source _(dành cho phát triển)_
+### Cách D — Link source _(dành cho phát triển)_
 
 ```bash
 git clone https://github.com/tuanminhhole/openclaw-zalo-connect.git ~/openclaw-zalo-connect

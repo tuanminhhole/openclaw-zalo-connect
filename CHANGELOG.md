@@ -6,6 +6,34 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 ## [Unreleased]
 
+## [3.0.18] — 2026-07-30
+
+### Sửa lỗi
+- **Ảnh gửi vào nhóm bị bỏ vì header của CDN, không phải vì người gửi.** CDN ảnh của Zalo
+  thường xuyên trả ảnh thật với `Content-Type: application/octet-stream`. Xác minh trực
+  tiếp trên CDN: một URL đuôi `.jpg` trả `200 application/octet-stream`, 23704 byte, và nội
+  dung là JPEG baseline hợp lệ (`ff d8 ff db`, 512x512). `image-downloader` từ chối ngay ở
+  header — **trước** cổng magic-byte ở 5 dòng dưới, vốn vừa chặt hơn vừa đúng hơn (nó là
+  chỗ bắt trang HTML lỗi của CDN). Trên một máy production, **6/7 ảnh vào bị đánh rơi**, và
+  vì cùng một URL luôn fail nên nó trông như *"ảnh của người đó không bao giờ đọc được"*
+  thay vì *"header không đáng tin"*.
+
+  Nay header chỉ từ chối kiểu **sai rõ ràng** (`text/*`, json, video, pdf…); kiểu binary
+  chung chung hoặc thiếu header thì nhường quyền quyết định cho magic bytes. Thêm nhánh:
+  generic + bytes không nhận ra → vẫn từ chối, để việc nới header không thành cửa cho rác.
+  Không có thứ gì đang chạy được mà bị siết lại.
+
+### Thêm mới
+- **Nhận ảnh HEIC/AVIF (iPhone đời mới).** Hai định dạng này dùng chung container ISO-BMFF
+  với MP4 — đều mở đầu bằng độ dài box, rồi `ftyp`, rồi brand 4 ký tự — nên chỉ có **brand**
+  phân biệt ảnh với video. Nhận diện theo brand (`heic`/`heix`/`mif1`/`msf1`/`avif`/`avis`…)
+  và chỉ theo brand: coi mọi file `ftyp` là ảnh sẽ đẩy hết MP4 vào đường xử lý ảnh. Có test
+  chặn đúng 4 brand video (`isom`, `mp42`, `qt  `, `M4V `).
+- **Đặt tên file theo bytes thật, không theo URL.** Zalo viết lại mọi URL ảnh thành `.jpg`,
+  nên một ảnh HEIC từ iPhone trước đây bị lưu thành `.jpg` và làm sai lệch thứ mở nó sau đó.
+  Đuôi file giờ lấy từ định dạng đã nhận diện, chỉ fallback về đuôi URL khi không nhận ra.
+  Kiểm tra chống path-traversal vẫn áp lên đường dẫn cuối cùng.
+
 ## [3.0.16] — 2026-07-26
 
 ### Thêm mới

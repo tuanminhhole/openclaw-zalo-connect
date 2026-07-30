@@ -55255,6 +55255,11 @@ function detectImageType(buffer) {
       if (match) return type;
     }
   }
+  if (buffer.length >= 12 && buffer.subarray(4, 8).toString("latin1") === "ftyp") {
+    const brand = buffer.subarray(8, 12).toString("latin1").toLowerCase();
+    const imageType = ISO_BMFF_IMAGE_BRANDS[brand];
+    if (imageType) return imageType;
+  }
   const head = buffer.subarray(0, 100).toString("utf8").trim().toLowerCase();
   if (head.startsWith("<svg") || head.startsWith("<?xml") && head.includes("<svg")) {
     return "svg";
@@ -55270,22 +55275,25 @@ async function downloadImageFromUrl(url2, workspaceDir) {
     }
     const urlHash = crypto4.createHash("sha256").update(url2).digest("hex").substring(0, 12);
     const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").substring(0, 19);
-    const ext = getSafeExtension(url2);
-    const filename = `${timestamp}-zalo-${urlHash}.${ext}`;
-    const filePath = path3.join(targetDir, filename);
-    const resolvedPath = path3.resolve(filePath);
     const resolvedDir = path3.resolve(targetDir);
-    if (!resolvedPath.startsWith(resolvedDir + path3.sep)) {
-      console.error(`[image-downloader] Path traversal blocked: ${filePath}`);
-      return void 0;
-    }
+    const destFor = (ext2) => {
+      const candidate = path3.join(targetDir, `${timestamp}-zalo-${urlHash}.${ext2}`);
+      if (!path3.resolve(candidate).startsWith(resolvedDir + path3.sep)) {
+        console.error(`[image-downloader] Path traversal blocked: ${candidate}`);
+        return void 0;
+      }
+      return candidate;
+    };
+    if (!destFor(getSafeExtension(url2))) return void 0;
     const isZaloCdn = /^https:\/\/(?:[a-z0-9-]+\.)*(?:zalo|zadn|zdn)\.(?:vn|me)\//i.test(url2);
     const { buffer, contentType } = await safeFetch(url2, {
       maxSizeBytes: MAX_IMAGE_SIZE_BYTES,
       skipSsrfCheck: isZaloCdn
     });
     const mimeBase = contentType?.split(";")[0]?.trim().toLowerCase();
-    if (mimeBase && !ALLOWED_MIME_TYPES.has(mimeBase) && !mimeBase.startsWith("image/")) {
+    const declaredImage = !!mimeBase && (ALLOWED_MIME_TYPES.has(mimeBase) || mimeBase.startsWith("image/"));
+    const declaredNothing = !mimeBase || GENERIC_BINARY_MIME_TYPES.has(mimeBase);
+    if (!declaredImage && !declaredNothing) {
       console.warn(`[image-downloader] Rejected non-image content-type "${contentType}" from ${url2}`);
       return void 0;
     }
@@ -55296,8 +55304,15 @@ async function downloadImageFromUrl(url2, workspaceDir) {
         console.warn(`[image-downloader] Rejected HTML content disguised as image from ${url2}`);
         return void 0;
       }
+      if (declaredNothing) {
+        console.warn(`[image-downloader] Rejected unidentified binary (content-type "${contentType ?? "none"}") from ${url2}`);
+        return void 0;
+      }
       console.warn(`[image-downloader] Unknown image format from ${url2}, saving anyway`);
     }
+    const ext = detectedType ? EXTENSION_FOR_TYPE[detectedType] ?? getSafeExtension(url2) : getSafeExtension(url2);
+    const filePath = destFor(ext);
+    if (!filePath) return void 0;
     fs10.writeFileSync(filePath, buffer);
     return filePath;
   } catch (err2) {
@@ -55318,13 +55333,23 @@ function getSafeExtension(url2) {
   }
   return "jpg";
 }
-var MAX_IMAGE_SIZE_BYTES, ALLOWED_EXTENSIONS, ALLOWED_MIME_TYPES, IMAGE_MAGIC_BYTES;
+var MAX_IMAGE_SIZE_BYTES, ALLOWED_EXTENSIONS, EXTENSION_FOR_TYPE, ALLOWED_MIME_TYPES, GENERIC_BINARY_MIME_TYPES, IMAGE_MAGIC_BYTES, ISO_BMFF_IMAGE_BRANDS;
 var init_image_downloader = __esm({
   "src/channel/image-downloader.ts"() {
     "use strict";
     init_url_validator();
     MAX_IMAGE_SIZE_BYTES = 20 * 1024 * 1024;
-    ALLOWED_EXTENSIONS = /* @__PURE__ */ new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "tiff"]);
+    ALLOWED_EXTENSIONS = /* @__PURE__ */ new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "tiff", "heic", "avif"]);
+    EXTENSION_FOR_TYPE = {
+      jpeg: "jpg",
+      png: "png",
+      gif: "gif",
+      webp: "webp",
+      bmp: "bmp",
+      svg: "svg",
+      heic: "heic",
+      avif: "avif"
+    };
     ALLOWED_MIME_TYPES = /* @__PURE__ */ new Set([
       "image/jpeg",
       "image/png",
@@ -55333,6 +55358,12 @@ var init_image_downloader = __esm({
       "image/bmp",
       "image/svg+xml",
       "image/tiff"
+    ]);
+    GENERIC_BINARY_MIME_TYPES = /* @__PURE__ */ new Set([
+      "application/octet-stream",
+      "binary/octet-stream",
+      "application/binary",
+      "application/download"
     ]);
     IMAGE_MAGIC_BYTES = [
       { prefix: [255, 216, 255], type: "jpeg" },
@@ -55346,6 +55377,20 @@ var init_image_downloader = __esm({
       { prefix: [66, 77], type: "bmp" }
       // BMP
     ];
+    ISO_BMFF_IMAGE_BRANDS = {
+      heic: "heic",
+      heix: "heic",
+      hevc: "heic",
+      hevx: "heic",
+      heim: "heic",
+      heis: "heic",
+      hevm: "heic",
+      hevs: "heic",
+      mif1: "heic",
+      msf1: "heic",
+      avif: "avif",
+      avis: "avif"
+    };
   }
 });
 
