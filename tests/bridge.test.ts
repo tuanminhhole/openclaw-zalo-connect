@@ -215,3 +215,17 @@ describe("phiên lịch sử chat", () => {
     expect(wasHistoryRequested("mkt", "user")).toBe(true);
   });
 });
+
+describe("chuẩn hoá mốc thời gian Zalo", () => {
+  it("nhận cả giây, mili-giây và micro-giây; hỏng thì rơi về hiện tại", async () => {
+    const { normalizeZaloTs } = await import("../src/channel/monitor.js");
+    const ms = 1785603429423;               // 13 chữ số — dạng Zalo thật sự trả về
+    expect(normalizeZaloTs(ms)).toBe(ms);
+    expect(normalizeZaloTs(Math.floor(ms / 1000))).toBe(1785603429000);   // giây → ms
+    // Đây là dữ liệu do chính bản cũ ghi sai (nhân 1000 theo một comment sai) — phải đọc lại được.
+    expect(normalizeZaloTs(ms * 1000)).toBe(ms);
+    for (const bad of [0, -1, NaN, null, undefined]) {
+      expect(normalizeZaloTs(bad as never)).toBeGreaterThan(1_700_000_000_000);
+    }
+  });
+});

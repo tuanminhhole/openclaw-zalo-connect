@@ -557,6 +557,21 @@ function extractMediaFromObject(obj: any, mediaUrls: string[], mediaTypes: strin
   return title || description || (mediaUrls.length > 0 ? "[Media attachment]" : "");
 }
 
+/**
+ * Đưa mốc thời gian của Zalo về mili-giây JavaScript.
+ *
+ * Không tin vào một đơn vị cố định: `data.ts` thường là mili-giây (13 chữ số), nhưng vài nhánh dự
+ * phòng trong file này lại trả giây (10 chữ số). Đoán theo độ lớn là cách duy nhất đúng cho cả hai
+ * mà không phải sửa hết mọi nơi sinh ra nó.
+ */
+export function normalizeZaloTs(ts: number | undefined | null): number {
+  const n = Number(ts);
+  if (!Number.isFinite(n) || n <= 0) return Date.now();
+  if (n > 1e14) return Math.floor(n / 1000);   // micro-giây (dữ liệu cũ đã bị nhân nhầm)
+  if (n < 1e11) return Math.floor(n * 1000);   // giây
+  return Math.floor(n);                         // đã là mili-giây
+}
+
 function convertToZaloConnectMessage(msg: Message): ZaloConnectMessage | null {
   const data = msg.data;
   let content = "";
@@ -885,19 +900,28 @@ async function processMessage(
   }
 
   // Give sibling moderation/context plugins a zero-token copy before the
-  // mention gate drops silent traffic. Zalo timestamps are seconds; bridge
-  // consumers use JavaScript milliseconds.
-  if (isGroup) {
+  // mention gate drops silent traffic.
+  //
+  // ★ Mốc thời gian: `data.ts` của Zalo là MILI-giây (13 chữ số), không phải giây. Code cũ nhân
+  // 1000 vô điều kiện theo một comment sai, biến nó thành micro-giây — và bên tiêu thụ lưu thẳng
+  // vào DB, nên cùng một cột chứa hai đơn vị và mọi phép sắp xếp/hiển thị theo thời gian đều sai
+  // (hiện ra năm 5xxxx). Nay đoán theo ĐỘ LỚN thay vì tin vào một đơn vị cố định.
+  //
+  // ★ Phát cho CẢ tin nhắn riêng, không chỉ nhóm: khung chat của plugin điều khiển cần thấy DM
+  // theo thời gian thực. Trước đây `if (isGroup)` khiến người dùng nhắn thẳng cho bot thì không
+  // plugin nào biết.
+  const bridgeTs = normalizeZaloTs(timestamp);
+  {
     const bridgeHandled = await publishBridgeInbound({
       accountId: account.accountId,
-      conversationId: `group:${chatId}`,
-      groupId: chatId,
-      isGroup: true,
+      conversationId: isGroup ? `group:${chatId}` : chatId,
+      groupId: isGroup ? chatId : undefined,
+      isGroup,
       messageId: String(message.msgId ?? message.cliMsgId ?? `${senderId}:${timestamp}:${rawBody}`),
       senderId,
       senderName: senderName || senderId,
       text: rawBody,
-      timestamp: (timestamp ?? Math.floor(Date.now() / 1000)) * 1000,
+      timestamp: bridgeTs,
       mentions: (message.mentions ?? []).map((m) => ({ uid: String(m.uid) })),
       quote: message.quote ? {
         messageId: message.quote.msgId,
@@ -1925,9 +1949,7 @@ export async function monitorZaloConnectProvider(
               senderId: String(converted.metadata?.fromId ?? ""),
               senderName: String(converted.metadata?.senderName ?? ""),
               text: converted.content ?? "",
-              // `data.ts` của Zalo là mili-giây, nhưng nhánh dự phòng trong `convertToZaloConnectMessage`
-              // lại trả giây — nên phải đoán theo độ lớn thay vì tin vào một đơn vị cố định.
-              timestamp: converted.timestamp > 1e12 ? converted.timestamp : converted.timestamp * 1000,
+              timestamp: normalizeZaloTs(converted.timestamp),
               fromSelf,
               mediaUrls: converted.mediaUrls,
             });

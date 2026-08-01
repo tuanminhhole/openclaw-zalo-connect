@@ -6,6 +6,17 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 ## [Unreleased]
 
+### Sửa lỗi
+- **★ Mốc thời gian bị nhân 1000 thành micro-giây.** Comment trong `monitor.ts` ghi *"Zalo timestamps
+  are seconds"* rồi `* 1000` — nhưng `data.ts` của Zalo **vốn đã là mili-giây** (13 chữ số), nên kết
+  quả là micro-giây (16 chữ số). Bên tiêu thụ lưu thẳng vào DB, nên cùng một cột chứa hai đơn vị và
+  mọi phép sắp xếp/hiển thị theo thời gian đều sai — khung chat hiện ra **năm 5xxxx**. Nay có
+  `normalizeZaloTs()` đoán theo **độ lớn** (giây / mili / micro) thay vì tin vào một đơn vị cố định.
+- **★ Tin nhắn RIÊNG không được phát lên bridge.** `publishBridgeInbound` bị bọc trong `if (isGroup)`,
+  nên người dùng nhắn thẳng cho bot thì **không plugin nào biết** — khung chat của plugin điều khiển
+  chỉ thấy DM đó ở lần kéo lịch sử kế tiếp. Nay phát cho cả hai loại, kèm `isGroup` để bên nhận tự
+  quyết xử lý ra sao.
+
 ### Thêm mới
 - **★ Kéo được LỊCH SỬ chat về, kể cả tin nhắn riêng.** Trước nay chỉ có tin đến từ lúc bot đang
   chạy, nên bất cứ giao diện chat nào dựng lên cũng mở ra một danh sách trống. Zalo có đẩy lại lịch

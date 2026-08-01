@@ -62415,7 +62415,8 @@ __export(monitor_exports, {
   _isToolTraceMessage: () => isToolTraceMessage,
   _processedMsgIds: () => processedMsgIds,
   _sanitizeOverflowNotice: () => sanitizeOverflowNotice,
-  monitorZaloConnectProvider: () => monitorZaloConnectProvider
+  monitorZaloConnectProvider: () => monitorZaloConnectProvider,
+  normalizeZaloTs: () => normalizeZaloTs
 });
 import { createReplyPrefixOptions, createTypingCallbacks } from "openclaw/plugin-sdk/channel-reply-pipeline";
 import { logTypingFailure, logAckFailure } from "openclaw/plugin-sdk/channel-feedback";
@@ -62766,6 +62767,13 @@ function extractMediaFromObject(obj, mediaUrls, mediaTypes) {
   }
   return title || description || (mediaUrls.length > 0 ? "[Media attachment]" : "");
 }
+function normalizeZaloTs(ts) {
+  const n = Number(ts);
+  if (!Number.isFinite(n) || n <= 0) return Date.now();
+  if (n > 1e14) return Math.floor(n / 1e3);
+  if (n < 1e11) return Math.floor(n * 1e3);
+  return Math.floor(n);
+}
 function convertToZaloConnectMessage(msg) {
   const data = msg.data;
   let content = "";
@@ -63022,17 +63030,18 @@ ${effectiveContent}`;
       }
     }
   }
-  if (isGroup) {
+  const bridgeTs = normalizeZaloTs(timestamp);
+  {
     const bridgeHandled = await publishBridgeInbound({
       accountId: account.accountId,
-      conversationId: `group:${chatId}`,
-      groupId: chatId,
-      isGroup: true,
+      conversationId: isGroup ? `group:${chatId}` : chatId,
+      groupId: isGroup ? chatId : void 0,
+      isGroup,
       messageId: String(message.msgId ?? message.cliMsgId ?? `${senderId}:${timestamp}:${rawBody}`),
       senderId,
       senderName: senderName || senderId,
       text: rawBody,
-      timestamp: (timestamp ?? Math.floor(Date.now() / 1e3)) * 1e3,
+      timestamp: bridgeTs,
       mentions: (message.mentions ?? []).map((m) => ({ uid: String(m.uid) })),
       quote: message.quote ? {
         messageId: message.quote.msgId,
@@ -63873,9 +63882,7 @@ async function monitorZaloConnectProvider(options) {
               senderId: String(converted.metadata?.fromId ?? ""),
               senderName: String(converted.metadata?.senderName ?? ""),
               text: converted.content ?? "",
-              // `data.ts` của Zalo là mili-giây, nhưng nhánh dự phòng trong `convertToZaloConnectMessage`
-              // lại trả giây — nên phải đoán theo độ lớn thay vì tin vào một đơn vị cố định.
-              timestamp: converted.timestamp > 1e12 ? converted.timestamp : converted.timestamp * 1e3,
+              timestamp: normalizeZaloTs(converted.timestamp),
               fromSelf,
               mediaUrls: converted.mediaUrls
             });
