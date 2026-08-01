@@ -1898,6 +1898,14 @@ export async function monitorZaloConnectProvider(
        */
       api.listener.on("old_messages", (msgs: Message[], threadType: ThreadType) => {
         lastListenerEventAt = Date.now();
+        // Đếm TRƯỚC khi kiểm người đăng ký: không có dòng này thì lúc chưa ai lắng nghe sẽ không
+        // phân biệt được "Zalo không gửi gì" với "có gửi nhưng mình bỏ qua" — hai chuyện cần cách
+        // sửa hoàn toàn khác nhau.
+        const rawCount = Array.isArray(msgs) ? msgs.length : 0;
+        runtime.log?.(
+          `[${account.accountId}] old_messages: nhận ${rawCount} tin ${threadType === ThreadType.Group ? "nhóm" : "riêng"}`
+          + (hasBridgeHistorySubscribers() ? "" : " (chưa ai đăng ký nhận lịch sử → bỏ qua)"),
+        );
         // Không ai lắng nghe thì khỏi tốn công chuyển đổi hàng trăm tin.
         if (!hasBridgeHistorySubscribers()) return;
         try {
@@ -1924,7 +1932,7 @@ export async function monitorZaloConnectProvider(
             });
           }
           if (!events.length) return;
-          runtime.log?.(`[${account.accountId}] lịch sử: ${events.length} tin cũ (${isGroup ? "nhóm" : "riêng"})`);
+          runtime.log?.(`[${account.accountId}] lịch sử: đẩy ${events.length}/${rawCount} tin sang bridge`);
           void publishBridgeHistory(events);
         } catch (err) {
           runtime.error(`[${account.accountId}] old_messages error: ${String(err)}`);

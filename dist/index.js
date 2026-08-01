@@ -63820,6 +63820,10 @@ async function monitorZaloConnectProvider(options) {
       });
       api.listener.on("old_messages", (msgs, threadType) => {
         lastListenerEventAt = Date.now();
+        const rawCount = Array.isArray(msgs) ? msgs.length : 0;
+        runtime2.log?.(
+          `[${account.accountId}] old_messages: nh\u1EADn ${rawCount} tin ${threadType === ThreadType.Group ? "nh\xF3m" : "ri\xEAng"}` + (hasBridgeHistorySubscribers() ? "" : " (ch\u01B0a ai \u0111\u0103ng k\xFD nh\u1EADn l\u1ECBch s\u1EED \u2192 b\u1ECF qua)")
+        );
         if (!hasBridgeHistorySubscribers()) return;
         try {
           const isGroup = threadType === ThreadType.Group;
@@ -63845,7 +63849,7 @@ async function monitorZaloConnectProvider(options) {
             });
           }
           if (!events.length) return;
-          runtime2.log?.(`[${account.accountId}] l\u1ECBch s\u1EED: ${events.length} tin c\u0169 (${isGroup ? "nh\xF3m" : "ri\xEAng"})`);
+          runtime2.log?.(`[${account.accountId}] l\u1ECBch s\u1EED: \u0111\u1EA9y ${events.length}/${rawCount} tin sang bridge`);
           void publishBridgeHistory(events);
         } catch (err2) {
           runtime2.error(`[${account.accountId}] old_messages error: ${String(err2)}`);
