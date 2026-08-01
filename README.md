@@ -7,7 +7,7 @@
 *Mỗi tài khoản có session, API client, listener và tuyến phản hồi riêng — đăng nhập QR, chạy đồng thời, không cần Zalo OA.*
 
 <p align="center">
-  <a href="https://github.com/tuanminhhole/openclaw-zalo-connect/releases/tag/v3.0.1"><img src="https://img.shields.io/badge/RELEASE-v3.0.1-0EA5E9?style=for-the-badge" alt="Version 3.0.1" /></a>
+  <a href="https://github.com/tuanminhhole/openclaw-zalo-connect/releases/tag/v3.1.0"><img src="https://img.shields.io/badge/RELEASE-v3.1.0-0EA5E9?style=for-the-badge" alt="Version 3.1.0" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/LICENSE-MIT-success?style=for-the-badge" alt="MIT License" /></a>
   <a href="https://openclaw.ai"><img src="https://img.shields.io/badge/OpenClaw-%E2%89%A52026.5.7-7C3AED?style=for-the-badge" alt="OpenClaw 2026.5.7+" /></a>
   <a href="https://github.com/tuanminhhole/openclaw-zalo-connect/stargazers"><img src="https://img.shields.io/github/stars/tuanminhhole/openclaw-zalo-connect?style=for-the-badge&color=eab308&logo=github&logoColor=white" alt="GitHub Stars" /></a>
@@ -47,9 +47,14 @@ runtime được duy trì lâu dài cho hệ sinh thái OpenClaw**, tập trung 
 - 📦 **Bản cài self-contained** — `zca-js` và các thư viện JavaScript cần thiết
   được bundle vào `dist`; cài từ Git không còn phải chạy `npm install` bổ sung
   hay gặp lỗi thiếu module lúc gateway khởi động.
-- ⚡ **Bridge service v2 cho plugin sibling** — Zalo Mod và các plugin OpenClaw
+- ⚡ **Bridge service v6 cho plugin sibling** — Zalo Mod và các plugin OpenClaw
   khác có thể đọc trạng thái, thực thi action, nhận inbound event và đổi group
   policy trực tiếp mà không patch file runtime.
+- 🕘 **Kéo lịch sử chat về, kể cả tin nhắn riêng** — Zalo đẩy lại tin cũ qua
+  WebSocket (`request-old-messages`), phát trên **kênh bridge riêng** để hàng trăm
+  tin cũ không lọt vào đường dispatch và khiến bot trả lời hàng loạt tin cũ.
+- ⌨️ **Kênh "đang soạn tin"** — sự kiện `typing` được phát cho plugin tiêu thụ,
+  đủ để dựng chỉ báo giống Zalo Web mà không phải hỏi liên tục.
 - 🕊️ **Free / Silent / Mute trước model** — runtime group policy có thể chặn tin
   không phù hợp ngay tại inbound pipeline, trước khi dispatch tới AI và trước khi
   tốn token.
@@ -73,7 +78,7 @@ runtime được duy trì lâu dài cho hệ sinh thái OpenClaw**, tập trung 
 | Tài khoản trong một gateway | Một client/session dùng chung | Nhiều session và client độc lập theo `accountId` |
 | Định tuyến nhiều agent | Cấu hình account cơ bản | Binding account → agent, inbound/outbound tách biệt |
 | Cài trực tiếp từ Git | Cần dependency runtime bên ngoài | Bundle self-contained, không cần cài dependency sau đó |
-| Tích hợp plugin khác | Import nội bộ hoặc tùy biến riêng | Bridge service v2 có contract ổn định |
+| Tích hợp plugin khác | Import nội bộ hoặc tùy biến riêng | Bridge service v6 có contract ổn định |
 | Group policy tức thời | Chủ yếu dựa vào config/reload | Free/Silent/Mute trong RAM, chặn trước model |
 | Ngữ cảnh khi bot đang silent | Tin không xử lý thường bị mất khỏi lượt sau | Passive buffer zero-token, có thể inject khi bot được gọi |
 | Reply/mention nhóm | Text hoặc xử lý tùy phiên bản | Native UID mention và reply mention |
@@ -104,7 +109,7 @@ Nếu plugin đã có, Setup sẽ dùng lại thay vì tải lại mỗi lần l
 Yêu cầu máy đã có [Git](https://git-scm.com/downloads), Node.js 22+ và OpenClaw:
 
 ```bash
-git clone --depth 1 --branch v3.0.1 \
+git clone --depth 1 --branch v3.1.0 \
   https://github.com/tuanminhhole/openclaw-zalo-connect.git
 
 openclaw plugins install ./openclaw-zalo-connect
@@ -272,7 +277,7 @@ Hướng dẫn chi tiết: **[docs/guide.md](docs/guide.md)**
 
 ---
 
-## 🔌 Bridge service v3
+## 🔌 Bridge service v6
 
 Zalo Connect expose một contract nhỏ cho plugin cùng process:
 
@@ -284,7 +289,17 @@ setGroupPolicy(accountId, groupId, mode)
 getGroupPolicy(accountId, groupId)
 clearGroupPolicy(accountId, groupId)
 subscribeInbound(handler)
+subscribeHistory(handler)   // v5 — lô tin cũ kéo về từ Zalo, kèm `fromSelf`
+subscribeTyping(handler)    // v6 — "đang soạn tin", sống ~3 giây
 ```
+
+Ba kênh tách rời chứ không phải một luồng kèm cờ phân loại. Lịch sử và inbound đi
+chung đường thì một lần kéo lịch sử — hàng trăm tin — sẽ chạy qua mention gate rồi
+dispatch cho model, tức là **bot trả lời hàng loạt tin từ tuần trước, gửi thật vào
+nhóm khách**. Tách kênh khiến sự cố đó không thể xảy ra do sơ ý.
+
+Bên tiêu thụ nên kiểm `typeof svc.subscribeHistory === 'function'` **lúc gọi**, không
+phải lúc khởi tạo: thứ tự nạp giữa hai plugin không được đảm bảo.
 
 Handler inbound có thể trả `true` hoặc `{ handled: true }` để xác nhận đã xử lý
 tin nhắn trước mention gate. Nhờ đó slash command chạy tức thì, không gọi model và
@@ -305,7 +320,7 @@ Zalo account: mkt ─────┘        │
                                 ├─ access policy + mention gate
                                 ├─ thread queue + dedup + timeout
                                 ├─ passive collector
-                                ├─ bridge service v3
+                                ├─ bridge service v6
                                 └─ 149 actions + outbound sender
 ```
 
@@ -330,7 +345,7 @@ npm test
 npm run build
 ```
 
-Bản `v3.0.1` hiện có **115 automated tests** cho parsing, send, bridge, media,
+Bản `v3.1.0` hiện có **175 automated tests** cho parsing, send, bridge, media,
 credential và các thành phần an toàn. Multi-account cũng đã được kiểm tra thực
 tế với hai Zalo cá nhân chạy đồng thời và tự kết nối lại sau gateway restart.
 

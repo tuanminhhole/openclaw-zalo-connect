@@ -4,20 +4,10 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 Định dạng dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
-
-### Sửa lỗi
-- **★ Mốc thời gian bị nhân 1000 thành micro-giây.** Comment trong `monitor.ts` ghi *"Zalo timestamps
-  are seconds"* rồi `* 1000` — nhưng `data.ts` của Zalo **vốn đã là mili-giây** (13 chữ số), nên kết
-  quả là micro-giây (16 chữ số). Bên tiêu thụ lưu thẳng vào DB, nên cùng một cột chứa hai đơn vị và
-  mọi phép sắp xếp/hiển thị theo thời gian đều sai — khung chat hiện ra **năm 5xxxx**. Nay có
-  `normalizeZaloTs()` đoán theo **độ lớn** (giây / mili / micro) thay vì tin vào một đơn vị cố định.
-- **★ Tin nhắn RIÊNG không được phát lên bridge.** `publishBridgeInbound` bị bọc trong `if (isGroup)`,
-  nên người dùng nhắn thẳng cho bot thì **không plugin nào biết** — khung chat của plugin điều khiển
-  chỉ thấy DM đó ở lần kéo lịch sử kế tiếp. Nay phát cho cả hai loại, kèm `isGroup` để bên nhận tự
-  quyết xử lý ra sao.
+## [3.1.0] — 2026-08-02
 
 ### Thêm mới
+
 - **★ Kéo được LỊCH SỬ chat về, kể cả tin nhắn riêng.** Trước nay chỉ có tin đến từ lúc bot đang
   chạy, nên bất cứ giao diện chat nào dựng lên cũng mở ra một danh sách trống. Zalo có đẩy lại lịch
   sử, chỉ là qua **WebSocket** chứ không qua REST: `listener.requestOldMessages(ThreadType.User)` =
@@ -39,7 +29,28 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
   sử mang thêm `fromSelf` (khung chat cần biết vẽ trái hay phải; đường inbound vốn đã lọc bỏ tin tự
   gửi nên không có thông tin này) và đẩy theo **lô** thay vì từng tin.
 
+- **★ Kênh "đang soạn tin" (contract v6): `subscribeTyping`.** zca-js vốn phát sự kiện `typing`
+  nhưng trước nay không ai nghe, nên giao diện chat nào dựng trên bridge cũng thiếu thứ mà người
+  dùng Zalo mặc định là phải có. Phát thành **kênh riêng** như đã làm với lịch sử: một sự kiện sống
+  đúng 3 giây không nên đi chung đường với tin nhắn thật, vốn phải được lưu.
+- **★ Tin bot TỰ GỬI cũng được phát lên bridge (kênh lịch sử, `fromSelf: true`).** Nhánh xử lý
+  self-echo trước đây ghi lại `cliMsgId` rồi `return` — đúng cho mục đích chống-vọng ban đầu, nhưng
+  hệ quả là bên tiêu thụ chỉ thấy MỘT chiều: câu khách hỏi thì có, câu bot đáp thì không, nên khung
+  chat trông như bot chưa từng trả lời. Đi vào kênh lịch sử chứ không phải inbound — inbound dẫn
+  thẳng tới model, đẩy tin của chính bot vào đó là mở đường cho vòng lặp tự trả lời chính mình.
+
 ### Sửa lỗi
+
+- **★ Mốc thời gian bị nhân 1000 thành micro-giây.** Comment trong `monitor.ts` ghi *"Zalo timestamps
+  are seconds"* rồi `* 1000` — nhưng `data.ts` của Zalo **vốn đã là mili-giây** (13 chữ số), nên kết
+  quả là micro-giây (16 chữ số). Bên tiêu thụ lưu thẳng vào DB, nên cùng một cột chứa hai đơn vị và
+  mọi phép sắp xếp/hiển thị theo thời gian đều sai — khung chat hiện ra **năm 5xxxx**. Nay có
+  `normalizeZaloTs()` đoán theo **độ lớn** (giây / mili / micro) thay vì tin vào một đơn vị cố định.
+- **★ Tin nhắn RIÊNG không được phát lên bridge.** `publishBridgeInbound` bị bọc trong `if (isGroup)`,
+  nên người dùng nhắn thẳng cho bot thì **không plugin nào biết** — khung chat của plugin điều khiển
+  chỉ thấy DM đó ở lần kéo lịch sử kế tiếp. Nay phát cho cả hai loại, kèm `isGroup` để bên nhận tự
+  quyết xử lý ra sao.
+
 - **★ Trang đầu lịch sử chỉ trả MỘT LẦN mỗi phiên WebSocket — nay nói thẳng thay vì im lặng.** Đo
   trên tài khoản thật: gọi `request-old-messages` lần đầu sau khi kết nối thì Zalo trả 50 tin riêng
   + 50 tin nhóm; gọi lại y hệt trong cùng phiên thì **không có phản hồi nào** — không lỗi, không sự
