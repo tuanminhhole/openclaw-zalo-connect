@@ -89,6 +89,39 @@ export async function publishBridgeInbound(event: ZaloConnectBridgeInboundEvent)
   return handled;
 }
 
+/**
+ * "Đang soạn tin" — sự kiện PHÙ DU, không phải dữ liệu để lưu.
+ *
+ * Kênh riêng vì vòng đời khác hẳn: nó chỉ đúng trong vài giây, không có id, không cần bền vững.
+ * Nhét vào kênh tin nhắn thì bên nhận sẽ ghi nó xuống DB, và một cột toàn bản ghi "ai đó đang gõ"
+ * là rác vĩnh viễn.
+ */
+export type ZaloConnectBridgeTypingEvent = {
+  accountId: string;
+  conversationId: string;
+  isGroup: boolean;
+  senderId: string;
+  at: number;
+};
+
+type TypingHandler = (event: ZaloConnectBridgeTypingEvent) => void | Promise<void>;
+const typingHandlers = new Set<TypingHandler>();
+
+export async function publishBridgeTyping(event: ZaloConnectBridgeTypingEvent): Promise<void> {
+  if (typingHandlers.size === 0) return;
+  for (const handler of typingHandlers) {
+    try {
+      await handler(event);
+    } catch (err) {
+      console.warn(`[zalo-connect] bridge typing subscriber failed: ${String(err)}`);
+    }
+  }
+}
+
+export function hasBridgeTypingSubscribers(): boolean {
+  return typingHandlers.size > 0;
+}
+
 type HistoryHandler = (
   events: ZaloConnectBridgeHistoryEvent[],
 ) => void | Promise<void>;
@@ -144,8 +177,8 @@ function readNameTriggers(accountId?: string): ZaloConnectNameTriggers {
 }
 
 export type ZaloConnectBridgeService = {
-  /** Version 5 adds the chat-history channel (additive to v4). */
-  version: 5;
+  /** Version 6 adds the ephemeral typing channel (additive to v5). */
+  version: 6;
   getStatus(accountId?: string): Promise<{
     connected: boolean;
     accountId?: string;
@@ -185,13 +218,18 @@ export type ZaloConnectBridgeService = {
    * mention và không dispatch cho model — tin cũ chỉ để lưu lại.
    */
   subscribeHistory?(handler: HistoryHandler): () => void;
+  /**
+   * v6: nhận sự kiện "đang soạn tin". Phù du — bên nhận nên giữ trong RAM với hạn vài giây, KHÔNG
+   * ghi xuống đĩa.
+   */
+  subscribeTyping?(handler: TypingHandler): () => void;
 };
 
 let seq = 0;
 
 export function createBridgeService(): ZaloConnectBridgeService {
   return {
-    version: 5,
+    version: 6,
 
     async getStatus(accountId) {
       return {
@@ -245,6 +283,11 @@ export function createBridgeService(): ZaloConnectBridgeService {
     subscribeHistory(handler) {
       historyHandlers.add(handler);
       return () => historyHandlers.delete(handler);
+    },
+
+    subscribeTyping(handler) {
+      typingHandlers.add(handler);
+      return () => typingHandlers.delete(handler);
     },
   };
 }

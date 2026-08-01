@@ -62309,6 +62309,19 @@ async function publishBridgeInbound(event) {
   }
   return handled;
 }
+async function publishBridgeTyping(event) {
+  if (typingHandlers.size === 0) return;
+  for (const handler of typingHandlers) {
+    try {
+      await handler(event);
+    } catch (err2) {
+      console.warn(`[zalo-connect] bridge typing subscriber failed: ${String(err2)}`);
+    }
+  }
+}
+function hasBridgeTypingSubscribers() {
+  return typingHandlers.size > 0;
+}
 async function publishBridgeHistory(events) {
   if (!events.length || historyHandlers.size === 0) return;
   for (const handler of historyHandlers) {
@@ -62339,7 +62352,7 @@ function readNameTriggers(accountId) {
 }
 function createBridgeService() {
   return {
-    version: 5,
+    version: 6,
     async getStatus(accountId) {
       return {
         connected: isAuthenticated(accountId),
@@ -62383,6 +62396,10 @@ function createBridgeService() {
     subscribeHistory(handler) {
       historyHandlers.add(handler);
       return () => historyHandlers.delete(handler);
+    },
+    subscribeTyping(handler) {
+      typingHandlers.add(handler);
+      return () => typingHandlers.delete(handler);
     }
   };
 }
@@ -62391,7 +62408,7 @@ function exposeBridgeService() {
   globalThis.__zaloConnectBridgeService = service;
   return service;
 }
-var inboundHandlers, historyHandlers, seq;
+var inboundHandlers, typingHandlers, historyHandlers, seq;
 var init_bridge = __esm({
   "src/runtime/bridge.ts"() {
     "use strict";
@@ -62400,6 +62417,7 @@ var init_bridge = __esm({
     init_group_policy();
     init_name_triggers();
     inboundHandlers = /* @__PURE__ */ new Set();
+    typingHandlers = /* @__PURE__ */ new Set();
     historyHandlers = /* @__PURE__ */ new Set();
     seq = 0;
   }
@@ -63815,6 +63833,25 @@ async function monitorZaloConnectProvider(options) {
               recordMsgId(sMsgId, sCliMsgId, sThreadId, sIsGroup);
               trackOutboundMessage(sThreadId, sMsgId, sCliMsgId);
             }
+            if (hasBridgeHistorySubscribers()) {
+              const converted2 = convertToZaloConnectMessage(msg);
+              if (converted2) {
+                const sIsGroup = msg.type === ThreadType.Group;
+                void publishBridgeHistory([{
+                  accountId: account.accountId,
+                  conversationId: sIsGroup ? `group:${converted2.threadId}` : converted2.threadId,
+                  groupId: sIsGroup ? converted2.threadId : void 0,
+                  isGroup: sIsGroup,
+                  messageId: String(converted2.msgId ?? ""),
+                  senderId: String(converted2.metadata?.fromId ?? selfUid ?? ""),
+                  senderName: String(converted2.metadata?.senderName ?? ""),
+                  text: converted2.content ?? "",
+                  timestamp: normalizeZaloTs(converted2.timestamp),
+                  fromSelf: true,
+                  mediaUrls: converted2.mediaUrls
+                }]);
+              }
+            }
           } catch {
           }
           return;
@@ -63939,6 +63976,14 @@ async function monitorZaloConnectProvider(options) {
         const threadId = typing.threadId;
         const isGroup = typing.type === ThreadType.Group;
         logVerbose(core, runtime2, `[${account.accountId}] typing in ${isGroup ? "group" : "dm"} ${threadId}`);
+        if (!hasBridgeTypingSubscribers()) return;
+        void publishBridgeTyping({
+          accountId: account.accountId,
+          conversationId: isGroup ? `group:${threadId}` : String(threadId),
+          isGroup,
+          senderId: String(typing.uid ?? ""),
+          at: Date.now()
+        });
       });
       api.listener.on("seen_messages", (seenObjects) => {
         lastListenerEventAt = Date.now();

@@ -46,7 +46,9 @@ import { resetHistorySession } from "../features/history-session.js";
 import {
   publishBridgeInbound,
   publishBridgeHistory,
+  publishBridgeTyping,
   hasBridgeHistorySubscribers,
+  hasBridgeTypingSubscribers,
   type ZaloConnectBridgeHistoryEvent,
 } from "../runtime/bridge.js";
 
@@ -1857,6 +1859,32 @@ export async function monitorZaloConnectProvider(
               recordMsgId(sMsgId, sCliMsgId, sThreadId, sIsGroup);
               trackOutboundMessage(sThreadId, sMsgId, sCliMsgId);
             }
+
+            // Tin bot TỰ GỬI cũng phải sang plugin anh em, không thì khung chat chỉ thấy một chiều:
+            // câu của khách thì có, câu bot trả lời thì không — nhìn như bot chưa từng đáp.
+            //
+            // Đi kênh LỊCH SỬ chứ không phải inbound: hợp đồng của kênh đó là "chỉ lưu, không bao
+            // giờ dispatch" — đúng thứ cần cho tin đã gửi rồi. Lọt vào inbound thì bot sẽ coi lời
+            // của chính mình là tin cần trả lời.
+            if (hasBridgeHistorySubscribers()) {
+              const converted = convertToZaloConnectMessage(msg);
+              if (converted) {
+                const sIsGroup = msg.type === ThreadType.Group;
+                void publishBridgeHistory([{
+                  accountId: account.accountId,
+                  conversationId: sIsGroup ? `group:${converted.threadId}` : converted.threadId,
+                  groupId: sIsGroup ? converted.threadId : undefined,
+                  isGroup: sIsGroup,
+                  messageId: String(converted.msgId ?? ""),
+                  senderId: String(converted.metadata?.fromId ?? selfUid ?? ""),
+                  senderName: String(converted.metadata?.senderName ?? ""),
+                  text: converted.content ?? "",
+                  timestamp: normalizeZaloTs(converted.timestamp),
+                  fromSelf: true,
+                  mediaUrls: converted.mediaUrls,
+                }]);
+              }
+            }
           } catch { /* best-effort */ }
           return;
         }
@@ -2015,6 +2043,15 @@ export async function monitorZaloConnectProvider(
         const threadId = typing.threadId;
         const isGroup = typing.type === ThreadType.Group;
         logVerbose(core, runtime, `[${account.accountId}] typing in ${isGroup ? "group" : "dm"} ${threadId}`);
+        // Phù du: chỉ đẩy đi, không lưu gì ở đây. Bên nhận giữ trong RAM vài giây rồi quên.
+        if (!hasBridgeTypingSubscribers()) return;
+        void publishBridgeTyping({
+          accountId: account.accountId,
+          conversationId: isGroup ? `group:${threadId}` : String(threadId),
+          isGroup,
+          senderId: String((typing as unknown as { uid?: string }).uid ?? ""),
+          at: Date.now(),
+        });
       });
 
       // Read/seen receipts

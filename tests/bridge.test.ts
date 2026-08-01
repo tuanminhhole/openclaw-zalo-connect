@@ -49,7 +49,7 @@ describe("plugin bridge service", () => {
   it("exposes the service on the documented global handshake", () => {
     const service = exposeBridgeService();
     expect((globalThis as Record<string, unknown>).__zaloConnectBridgeService).toBe(service);
-    expect(service.version).toBe(5);
+    expect(service.version).toBe(6);
     delete (globalThis as Record<string, unknown>).__zaloConnectBridgeService;
   });
 
@@ -227,5 +227,28 @@ describe("chuẩn hoá mốc thời gian Zalo", () => {
     for (const bad of [0, -1, NaN, null, undefined]) {
       expect(normalizeZaloTs(bad as never)).toBeGreaterThan(1_700_000_000_000);
     }
+  });
+});
+
+describe("kênh đang-soạn-tin (v6)", () => {
+  it("phù du: KHÔNG đi chung kênh tin nhắn, và không ai đăng ký thì không phát", async () => {
+    const { publishBridgeTyping, hasBridgeTypingSubscribers, createBridgeService: mk } =
+      await import("../src/runtime/bridge.js");
+    const bridge = mk();
+    expect(hasBridgeTypingSubscribers()).toBe(false);
+    await publishBridgeTyping({ accountId: 'a', conversationId: 'c', isGroup: false, senderId: 'u', at: 1 });
+
+    const msgs: unknown[] = [];
+    const typings: unknown[] = [];
+    const offHist = bridge.subscribeHistory!((b) => { msgs.push(...b); });
+    const offType = bridge.subscribeTyping!((e) => { typings.push(e); });
+
+    await publishBridgeTyping({ accountId: 'a', conversationId: 'c', isGroup: false, senderId: 'u', at: 2 });
+    // Người đăng ký tin nhắn KHÔNG được nhận sự kiện gõ phím — nếu nhận, nó sẽ bị ghi xuống DB.
+    expect(msgs).toHaveLength(0);
+    expect(typings).toHaveLength(1);
+    offHist();
+    offType();
+    expect(hasBridgeTypingSubscribers()).toBe(false);
   });
 });
