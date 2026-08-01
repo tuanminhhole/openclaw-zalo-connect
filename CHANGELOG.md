@@ -29,6 +29,19 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
   gửi nên không có thông tin này) và đẩy theo **lô** thay vì từng tin.
 
 ### Sửa lỗi
+- **★ Trang đầu lịch sử chỉ trả MỘT LẦN mỗi phiên WebSocket — nay nói thẳng thay vì im lặng.** Đo
+  trên tài khoản thật: gọi `request-old-messages` lần đầu sau khi kết nối thì Zalo trả 50 tin riêng
+  + 50 tin nhóm; gọi lại y hệt trong cùng phiên thì **không có phản hồi nào** — không lỗi, không sự
+  kiện, im lặng hoàn toàn. Kiểu im lặng đó khiến người dùng bấm lần hai, không thấy gì, và kết luận
+  tính năng hỏng.
+
+  Nay nhớ theo `(profile, loại)` và trả về `skipped` kèm câu chỉ đường (truyền `lastMsgId` để lùi xa
+  hơn, hoặc đợi phiên mới). Dấu nhớ được xoá khi listener kết nối lại — thiếu bước đó thì sau một
+  lần rớt mạng, action sẽ vĩnh viễn báo "đã lấy rồi".
+
+  Vẫn trả `success: true` khi bỏ qua: đó không phải lỗi, mà là "không còn gì để xin". Trả `false`
+  thì phía zalo-mod (`openclaw-adapter` đổi `success:false` thành throw) báo đỏ cho một tình huống
+  hoàn toàn bình thường.
 - **`request-old-messages` báo lỗi rõ khi WebSocket chưa kết nối.** `listener.sendWs` là
   `if (this.ws) { … }` — mất kết nối thì nó im lặng không làm gì, và action sẽ trả `success: true`
   trong khi không có tin nào được yêu cầu. Nay chặn trước và nói thẳng, thay vì để người gọi ngồi

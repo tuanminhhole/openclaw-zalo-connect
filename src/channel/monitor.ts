@@ -42,6 +42,7 @@ import { recordGroupId } from "../features/group-id-cache.js";
 import { refreshCredentials } from "../client/credentials.js";
 import { ThreadMessageQueue, type ThreadQueueEntry } from "./thread-queue.js";
 import { getRuntimeGroupPolicy } from "../runtime/group-policy.js";
+import { resetHistorySession } from "../features/history-session.js";
 import {
   publishBridgeInbound,
   publishBridgeHistory,
@@ -2022,6 +2023,10 @@ export async function monitorZaloConnectProvider(
       api.listener.on("connected", () => {
         lastListenerEventAt = Date.now();
         reconnectAttempts = 0;
+        // Phiên WS mới ⇒ Zalo lại trả trang đầu lịch sử. Không xoá dấu ở đây thì sau một lần rớt
+        // mạng, `request-old-messages` sẽ vĩnh viễn báo "đã lấy rồi" và không bao giờ lấy được nữa
+        // cho tới khi khởi động lại plugin.
+        resetHistorySession(account.accountId || "default");
         runtime.log?.(`[${account.accountId}] listener connected`);
       });
 

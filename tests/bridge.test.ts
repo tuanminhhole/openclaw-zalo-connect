@@ -194,3 +194,24 @@ describe("plugin bridge service", () => {
     unsubscribe();
   });
 });
+
+describe("phiên lịch sử chat", () => {
+  it("nhớ trang đầu đã xin, và quên khi phiên WS dựng lại", async () => {
+    const { markHistoryRequested, wasHistoryRequested, resetHistorySession, clearAllHistorySessions } =
+      await import("../src/features/history-session.js");
+    clearAllHistorySessions();
+
+    expect(wasHistoryRequested("default", "user")).toBe(false);
+    markHistoryRequested("default", "user");
+    expect(wasHistoryRequested("default", "user")).toBe(true);
+    // Zalo trả trang đầu riêng cho từng loại, nên đánh dấu phải tách theo loại.
+    expect(wasHistoryRequested("default", "group")).toBe(false);
+    // ...và tách theo tài khoản: bot mkt chưa xin thì vẫn xin được.
+    expect(wasHistoryRequested("mkt", "user")).toBe(false);
+
+    markHistoryRequested("mkt", "user");
+    resetHistorySession("default");
+    expect(wasHistoryRequested("default", "user")).toBe(false);
+    expect(wasHistoryRequested("mkt", "user")).toBe(true);
+  });
+});

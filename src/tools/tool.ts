@@ -63,6 +63,7 @@ import {
   getGroupRequireMention,
 } from "../config/config-manager.js";
 import { getPendingRequests, removePendingRequest } from "../client/friend-request-store.js";
+import { markHistoryRequested, wasHistoryRequested } from "../features/history-session.js";
 import { validateLocalFilePath } from "../safety/thread-sandbox.js";
 import { safeFetch, validateUrlForOutboundFetch } from "../safety/url-validator.js";
 import { resolveOutboundMentions } from "../parsing/mention-parser.js";
@@ -1293,19 +1294,36 @@ async function dispatch(p: Params): Promise<ToolResult> {
         throw new Error(`threadType không hợp lệ: ${scope} (dùng user | group | both)`);
       }
       const lastMsgId = typeof p.lastMsgId === "string" && p.lastMsgId.trim() ? p.lastMsgId.trim() : null;
+      // Khoá theo PROFILE (`default`/`mkt`), không theo uid Zalo: uid có thể chưa sẵn sàng lúc gọi,
+      // và monitor cũng xoá dấu theo profile khi WS nối lại — hai bên phải dùng cùng một khoá.
+      const acct = p.accountId || "default";
+      const wanted: Array<"user" | "group"> = scope === "both" ? ["user", "group"] : [scope as "user" | "group"];
+
       const requested: string[] = [];
-      if (scope === "user" || scope === "both") {
-        a.listener.requestOldMessages(ThreadType.User, lastMsgId);
-        requested.push("user");
+      const skipped: string[] = [];
+      for (const kind of wanted) {
+        // Trang đầu chỉ được trả MỘT LẦN mỗi phiên WebSocket. Gửi lại y hệt thì server im lặng
+        // hoàn toàn — nên báo trước thay vì hứa suông rồi để người dùng ngồi chờ.
+        if (!lastMsgId && wasHistoryRequested(acct, kind)) {
+          skipped.push(kind);
+          continue;
+        }
+        a.listener.requestOldMessages(kind === "user" ? ThreadType.User : ThreadType.Group, lastMsgId);
+        if (!lastMsgId) markHistoryRequested(acct, kind);
+        requested.push(kind);
       }
-      if (scope === "group" || scope === "both") {
-        a.listener.requestOldMessages(ThreadType.Group, lastMsgId);
-        requested.push("group");
-      }
+
       return ok({
+        // LUÔN `true`: "trang đầu đã lấy trong phiên này" KHÔNG phải lỗi — yêu cầu được xử lý đúng,
+        // chỉ là không có gì để xin thêm. Trả `false` thì bên gọi (openclaw-adapter đổi
+        // `success:false` thành throw) sẽ báo đỏ cho một tình huống hoàn toàn bình thường.
         success: true,
         requested,
-        note: "Zalo đẩy dần qua sự kiện old_messages; đăng ký subscribeHistory trên bridge để nhận.",
+        skipped,
+        note: skipped.length
+          ? `Đã lấy trang đầu của ${skipped.join(", ")} trong phiên kết nối này — Zalo sẽ không trả lại. `
+            + "Muốn lùi xa hơn thì truyền lastMsgId, hoặc đợi phiên kết nối mới."
+          : "Zalo đẩy dần qua sự kiện old_messages; đăng ký subscribeHistory trên bridge để nhận.",
       });
     }
 
