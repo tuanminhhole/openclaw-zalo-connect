@@ -37,6 +37,31 @@ export type ZaloConnectBridgeInboundEvent = {
   quote?: { messageId?: string; senderId?: string; text?: string };
 };
 
+/**
+ * Một tin nhắn CŨ kéo về từ Zalo — kênh RIÊNG, tuyệt đối không dùng chung với inbound.
+ *
+ * Vì sao tách hẳn thay vì thêm một cờ vào `ZaloConnectBridgeInboundEvent`: đường inbound đi thẳng
+ * vào cổng mention rồi dispatch cho model. Một lần kéo lịch sử là hàng trăm tin đổ về cùng lúc —
+ * lọt vào đường đó thì bot trả lời hàng loạt tin từ tuần trước, gửi thật vào nhóm khách. Kiểu tách
+ * này khiến lỗi đó không thể xảy ra do nhầm lẫn, chứ không dựa vào việc ai đó nhớ kiểm cờ.
+ *
+ * `fromSelf` phân biệt tin của chính bot với tin của người khác — khung chat cần nó để vẽ trái/phải,
+ * và `old_messages` trả về cả hai chiều (khác đường inbound vốn đã lọc bỏ tin tự gửi).
+ */
+export type ZaloConnectBridgeHistoryEvent = {
+  accountId: string;
+  conversationId: string;
+  groupId?: string;
+  isGroup: boolean;
+  messageId: string;
+  senderId: string;
+  senderName: string;
+  text: string;
+  timestamp: number;
+  fromSelf: boolean;
+  mediaUrls?: string[];
+};
+
 export type ZaloConnectBridgeInboundOutcome = void | boolean | { handled?: boolean };
 type InboundHandler = (
   event: ZaloConnectBridgeInboundEvent,
@@ -62,6 +87,34 @@ export async function publishBridgeInbound(event: ZaloConnectBridgeInboundEvent)
     }
   }
   return handled;
+}
+
+type HistoryHandler = (
+  events: ZaloConnectBridgeHistoryEvent[],
+) => void | Promise<void>;
+const historyHandlers = new Set<HistoryHandler>();
+
+/**
+ * Đẩy một LÔ tin cũ sang plugin anh em. Không có giá trị trả về và không ai "claim" được lô này:
+ * lịch sử chỉ để lưu lại, không phải thứ để phản hồi.
+ *
+ * Đẩy theo lô chứ không từng tin: Zalo trả về hàng trăm tin trong một sự kiện, gọi handler mỗi tin
+ * là bên kia phải mở/đóng transaction hàng trăm lần.
+ */
+export async function publishBridgeHistory(events: ZaloConnectBridgeHistoryEvent[]): Promise<void> {
+  if (!events.length || historyHandlers.size === 0) return;
+  for (const handler of historyHandlers) {
+    try {
+      await handler(events);
+    } catch (err) {
+      console.warn(`[zalo-connect] bridge history subscriber failed: ${String(err)}`);
+    }
+  }
+}
+
+/** Có ai đang lắng nghe lịch sử không — dùng để khỏi tốn công chuyển đổi khi không ai cần. */
+export function hasBridgeHistorySubscribers(): boolean {
+  return historyHandlers.size > 0;
 }
 
 /** Silent-mode name gate view: the bot's own display name plus runtime aliases. */
@@ -91,8 +144,8 @@ function readNameTriggers(accountId?: string): ZaloConnectNameTriggers {
 }
 
 export type ZaloConnectBridgeService = {
-  /** Version 4 adds the silent-mode name-trigger gate (additive to v3). */
-  version: 4;
+  /** Version 5 adds the chat-history channel (additive to v4). */
+  version: 5;
   getStatus(accountId?: string): Promise<{
     connected: boolean;
     accountId?: string;
@@ -127,13 +180,18 @@ export type ZaloConnectBridgeService = {
   setNameTriggers(accountId: string | undefined, triggers: string[]): Promise<ZaloConnectNameTriggers>;
   /** Receive allowed inbound messages before silent/mention gating (zero-token). */
   subscribeInbound(handler: InboundHandler): () => void;
+  /**
+   * v5: nhận LỊCH SỬ chat kéo về từ Zalo (`request-old-messages`). Kênh riêng, không đi qua cổng
+   * mention và không dispatch cho model — tin cũ chỉ để lưu lại.
+   */
+  subscribeHistory?(handler: HistoryHandler): () => void;
 };
 
 let seq = 0;
 
 export function createBridgeService(): ZaloConnectBridgeService {
   return {
-    version: 4,
+    version: 5,
 
     async getStatus(accountId) {
       return {
@@ -182,6 +240,11 @@ export function createBridgeService(): ZaloConnectBridgeService {
     subscribeInbound(handler) {
       inboundHandlers.add(handler);
       return () => inboundHandlers.delete(handler);
+    },
+
+    subscribeHistory(handler) {
+      historyHandlers.add(handler);
+      return () => historyHandlers.delete(handler);
     },
   };
 }

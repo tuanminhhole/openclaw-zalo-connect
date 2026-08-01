@@ -294,6 +294,8 @@ export const ACTIONS = [
   "edit-note",
   "get-boards",
   "get-labels",
+  // Lịch sử chat
+  "request-old-messages",
   // Catalogs & products
   "create-catalog",
   "update-catalog",
@@ -1264,6 +1266,47 @@ async function dispatch(p: Params): Promise<ToolResult> {
       const a = await api();
       const res = await a.getGroupChatHistory(gid, p.count ?? 20);
       return ok({ history: res });
+    }
+
+    /**
+     * Yêu cầu Zalo đẩy LỊCH SỬ chat về qua WebSocket (cmd 510 cho tin riêng, 511 cho nhóm).
+     *
+     * Đây là đường DUY NHẤT lấy được lịch sử tin nhắn RIÊNG — REST không có API nào cho việc đó.
+     * Gọi xong trả về ngay: Zalo đẩy dần qua sự kiện `old_messages`, plugin nào đăng ký
+     * `subscribeHistory` trên bridge sẽ nhận được từng lô.
+     *
+     * KHÔNG có nguy cơ bot trả lời tin cũ: zca-js phát tin cũ trên sự kiện riêng, không đi vào
+     * hàng đợi xử lý của `"message"`.
+     */
+    case "request-old-messages": {
+      const a = await api();
+      // `listener.sendWs` là `if (this.ws) { … }` — mất kết nối thì nó IM LẶNG không làm gì, mà
+      // action vẫn trả về success. Chặn ở đây để người gọi biết là chưa lấy được gì, thay vì ngồi
+      // chờ một lô tin không bao giờ tới.
+      if (!(a.listener as unknown as { ws?: unknown } | undefined)?.ws) {
+        throw new Error(
+          "WebSocket của Zalo chưa kết nối — không gửi được yêu cầu lấy lịch sử. Kiểm tra đăng nhập rồi thử lại.",
+        );
+      }
+      const scope = String(p.threadType ?? "both").toLowerCase();
+      if (!["user", "group", "both"].includes(scope)) {
+        throw new Error(`threadType không hợp lệ: ${scope} (dùng user | group | both)`);
+      }
+      const lastMsgId = typeof p.lastMsgId === "string" && p.lastMsgId.trim() ? p.lastMsgId.trim() : null;
+      const requested: string[] = [];
+      if (scope === "user" || scope === "both") {
+        a.listener.requestOldMessages(ThreadType.User, lastMsgId);
+        requested.push("user");
+      }
+      if (scope === "group" || scope === "both") {
+        a.listener.requestOldMessages(ThreadType.Group, lastMsgId);
+        requested.push("group");
+      }
+      return ok({
+        success: true,
+        requested,
+        note: "Zalo đẩy dần qua sự kiện old_messages; đăng ký subscribeHistory trên bridge để nhận.",
+      });
     }
 
     // ── Polls ──────────────────────────────────────────────────────────────

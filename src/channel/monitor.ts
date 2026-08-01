@@ -42,7 +42,12 @@ import { recordGroupId } from "../features/group-id-cache.js";
 import { refreshCredentials } from "../client/credentials.js";
 import { ThreadMessageQueue, type ThreadQueueEntry } from "./thread-queue.js";
 import { getRuntimeGroupPolicy } from "../runtime/group-policy.js";
-import { publishBridgeInbound } from "../runtime/bridge.js";
+import {
+  publishBridgeInbound,
+  publishBridgeHistory,
+  hasBridgeHistorySubscribers,
+  type ZaloConnectBridgeHistoryEvent,
+} from "../runtime/bridge.js";
 
 export type ZaloConnectMonitorOptions = {
   account: ResolvedZaloConnectAccount;
@@ -1881,6 +1886,49 @@ export async function monitorZaloConnectProvider(
         }
 
         messageQueue.enqueue(converted.threadId, converted);
+      });
+
+      /**
+       * LỊCH SỬ chat kéo về (`request-old-messages` → WS cmd 510/511).
+       *
+       * zca-js phát tin cũ trên sự kiện RIÊNG `old_messages`, không phải `"message"` — nhờ vậy tin
+       * cũ không thể lọt vào hàng đợi xử lý và bot không thể trả lời hàng trăm tin từ tuần trước.
+       * Ở đây chỉ chuyển đổi rồi đẩy sang bridge để bên kia lưu: KHÔNG cổng mention, KHÔNG tải
+       * media, KHÔNG dispatch.
+       */
+      api.listener.on("old_messages", (msgs: Message[], threadType: ThreadType) => {
+        lastListenerEventAt = Date.now();
+        // Không ai lắng nghe thì khỏi tốn công chuyển đổi hàng trăm tin.
+        if (!hasBridgeHistorySubscribers()) return;
+        try {
+          const isGroup = threadType === ThreadType.Group;
+          const events: ZaloConnectBridgeHistoryEvent[] = [];
+          for (const msg of msgs || []) {
+            const converted = convertToZaloConnectMessage(msg);
+            if (!converted) continue;
+            const fromSelf = !!msg.isSelf || (!!selfUid && msg.data?.uidFrom === selfUid);
+            events.push({
+              accountId: account.accountId,
+              conversationId: converted.threadId,
+              groupId: isGroup ? converted.threadId : undefined,
+              isGroup,
+              messageId: String(converted.msgId ?? ""),
+              senderId: String(converted.metadata?.fromId ?? ""),
+              senderName: String(converted.metadata?.senderName ?? ""),
+              text: converted.content ?? "",
+              // `data.ts` của Zalo là mili-giây, nhưng nhánh dự phòng trong `convertToZaloConnectMessage`
+              // lại trả giây — nên phải đoán theo độ lớn thay vì tin vào một đơn vị cố định.
+              timestamp: converted.timestamp > 1e12 ? converted.timestamp : converted.timestamp * 1000,
+              fromSelf,
+              mediaUrls: converted.mediaUrls,
+            });
+          }
+          if (!events.length) return;
+          runtime.log?.(`[${account.accountId}] lịch sử: ${events.length} tin cũ (${isGroup ? "nhóm" : "riêng"})`);
+          void publishBridgeHistory(events);
+        } catch (err) {
+          runtime.error(`[${account.accountId}] old_messages error: ${String(err)}`);
+        }
       });
 
       api.listener.on("friend_event", (event: FriendEvent) => {

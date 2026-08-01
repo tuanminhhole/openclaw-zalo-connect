@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { createBridgeService, exposeBridgeService, publishBridgeInbound } from "../src/runtime/bridge.js";
+import {
+  createBridgeService,
+  exposeBridgeService,
+  publishBridgeInbound,
+  publishBridgeHistory,
+  hasBridgeHistorySubscribers,
+  type ZaloConnectBridgeHistoryEvent,
+} from "../src/runtime/bridge.js";
 import { clearAllRuntimeGroupPolicies } from "../src/runtime/group-policy.js";
 import { clearAllRuntimeNameTriggers } from "../src/runtime/name-triggers.js";
 import { ACTIONS } from "../src/tools/tool.js";
@@ -42,8 +49,70 @@ describe("plugin bridge service", () => {
   it("exposes the service on the documented global handshake", () => {
     const service = exposeBridgeService();
     expect((globalThis as Record<string, unknown>).__zaloConnectBridgeService).toBe(service);
-    expect(service.version).toBe(4);
+    expect(service.version).toBe(5);
     delete (globalThis as Record<string, unknown>).__zaloConnectBridgeService;
+  });
+
+  // ── Kênh lịch sử chat (v5) ────────────────────────────────────────────────
+
+  const histEvent = (over: Partial<ZaloConnectBridgeHistoryEvent> = {}): ZaloConnectBridgeHistoryEvent => ({
+    accountId: "default",
+    conversationId: "t-1",
+    isGroup: false,
+    messageId: "m-1",
+    senderId: "u-1",
+    senderName: "Khách",
+    text: "tin cũ",
+    timestamp: 1_700_000_000_000,
+    fromSelf: false,
+    ...over,
+  });
+
+  it("lịch sử đi kênh RIÊNG: người đăng ký inbound KHÔNG nhận được tin cũ", async () => {
+    const bridge = createBridgeService();
+    const inbound: unknown[] = [];
+    const history: unknown[] = [];
+    const offIn = bridge.subscribeInbound((e) => { inbound.push(e); });
+    const offHist = bridge.subscribeHistory!((batch) => { history.push(...batch); });
+
+    await publishBridgeHistory([histEvent(), histEvent({ messageId: "m-2" })]);
+
+    // Đây là tính chất giữ cho bot KHÔNG trả lời hàng trăm tin cũ khi kéo lịch sử về.
+    expect(inbound).toHaveLength(0);
+    expect(history).toHaveLength(2);
+    offIn();
+    offHist();
+  });
+
+  it("không ai đăng ký thì không phát, và bỏ đăng ký là ngừng nhận", async () => {
+    const bridge = createBridgeService();
+    expect(hasBridgeHistorySubscribers()).toBe(false);
+    await publishBridgeHistory([histEvent()]);   // không được ném
+
+    const seen: unknown[] = [];
+    const off = bridge.subscribeHistory!((batch) => { seen.push(...batch); });
+    expect(hasBridgeHistorySubscribers()).toBe(true);
+    await publishBridgeHistory([histEvent()]);
+    off();
+    expect(hasBridgeHistorySubscribers()).toBe(false);
+    await publishBridgeHistory([histEvent({ messageId: "m-sau-khi-huy" })]);
+    expect(seen).toHaveLength(1);
+  });
+
+  it("một người nghe ném lỗi thì người còn lại vẫn nhận đủ", async () => {
+    const bridge = createBridgeService();
+    const seen: unknown[] = [];
+    const offBad = bridge.subscribeHistory!(() => { throw new Error("hỏng"); });
+    const offGood = bridge.subscribeHistory!((batch) => { seen.push(...batch); });
+    await expect(publishBridgeHistory([histEvent()])).resolves.toBeUndefined();
+    expect(seen).toHaveLength(1);
+    offBad();
+    offGood();
+  });
+
+  it("có action request-old-messages trong danh sách", async () => {
+    const bridge = createBridgeService();
+    expect(await bridge.listActions()).toContain("request-old-messages");
   });
 
   it("applies free/silent/mute policy in memory without config writes", async () => {

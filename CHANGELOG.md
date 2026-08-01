@@ -6,6 +6,34 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 ## [Unreleased]
 
+### Thêm mới
+- **★ Kéo được LỊCH SỬ chat về, kể cả tin nhắn riêng.** Trước nay chỉ có tin đến từ lúc bot đang
+  chạy, nên bất cứ giao diện chat nào dựng lên cũng mở ra một danh sách trống. Zalo có đẩy lại lịch
+  sử, chỉ là qua **WebSocket** chứ không qua REST: `listener.requestOldMessages(ThreadType.User)` =
+  cmd 510 cho tin riêng, `ThreadType.Group` = cmd 511 cho nhóm.
+
+  Action mới `request-old-messages` với `threadType: user | group | both` (mặc định `both`). Nó trả
+  về ngay; Zalo đẩy dần từng lô sau đó.
+
+  Dễ kết luận nhầm là "REST không có API lịch sử DM ⇒ không lấy được" — REST đúng là không có, WS
+  thì có. Ghi lại đây để lần sau khỏi đi lại đường cụt đó.
+- **Kênh bridge riêng cho lịch sử (contract v5): `subscribeHistory`.** Tách hẳn khỏi
+  `subscribeInbound` chứ không thêm một cờ `isHistory`, vì đường inbound đi thẳng vào cổng mention
+  rồi dispatch cho model — một lần kéo lịch sử là hàng trăm tin đổ về, lọt vào đó thì **bot trả lời
+  hàng loạt tin từ tuần trước, gửi thật vào nhóm khách**. Tách kênh khiến lỗi đó không thể xảy ra do
+  nhầm lẫn, thay vì trông chờ ai đó nhớ kiểm cờ.
+
+  Thuận lợi là zca-js vốn đã phát tin cũ trên sự kiện **`old_messages`** riêng, không phải
+  `"message"` — nên trước bản này tin cũ chỉ đơn giản bị bỏ qua, chưa từng có rủi ro. Sự kiện lịch
+  sử mang thêm `fromSelf` (khung chat cần biết vẽ trái hay phải; đường inbound vốn đã lọc bỏ tin tự
+  gửi nên không có thông tin này) và đẩy theo **lô** thay vì từng tin.
+
+### Sửa lỗi
+- **`request-old-messages` báo lỗi rõ khi WebSocket chưa kết nối.** `listener.sendWs` là
+  `if (this.ws) { … }` — mất kết nối thì nó im lặng không làm gì, và action sẽ trả `success: true`
+  trong khi không có tin nào được yêu cầu. Nay chặn trước và nói thẳng, thay vì để người gọi ngồi
+  chờ một lô tin không bao giờ tới.
+
 ## [3.0.18] — 2026-07-30
 
 ### Sửa lỗi

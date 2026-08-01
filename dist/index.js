@@ -61247,6 +61247,43 @@ async function dispatch(p) {
       const res = await a.getGroupChatHistory(gid, p.count ?? 20);
       return ok({ history: res });
     }
+    /**
+     * Yêu cầu Zalo đẩy LỊCH SỬ chat về qua WebSocket (cmd 510 cho tin riêng, 511 cho nhóm).
+     *
+     * Đây là đường DUY NHẤT lấy được lịch sử tin nhắn RIÊNG — REST không có API nào cho việc đó.
+     * Gọi xong trả về ngay: Zalo đẩy dần qua sự kiện `old_messages`, plugin nào đăng ký
+     * `subscribeHistory` trên bridge sẽ nhận được từng lô.
+     *
+     * KHÔNG có nguy cơ bot trả lời tin cũ: zca-js phát tin cũ trên sự kiện riêng, không đi vào
+     * hàng đợi xử lý của `"message"`.
+     */
+    case "request-old-messages": {
+      const a = await api();
+      if (!a.listener?.ws) {
+        throw new Error(
+          "WebSocket c\u1EE7a Zalo ch\u01B0a k\u1EBFt n\u1ED1i \u2014 kh\xF4ng g\u1EEDi \u0111\u01B0\u1EE3c y\xEAu c\u1EA7u l\u1EA5y l\u1ECBch s\u1EED. Ki\u1EC3m tra \u0111\u0103ng nh\u1EADp r\u1ED3i th\u1EED l\u1EA1i."
+        );
+      }
+      const scope = String(p.threadType ?? "both").toLowerCase();
+      if (!["user", "group", "both"].includes(scope)) {
+        throw new Error(`threadType kh\xF4ng h\u1EE3p l\u1EC7: ${scope} (d\xF9ng user | group | both)`);
+      }
+      const lastMsgId = typeof p.lastMsgId === "string" && p.lastMsgId.trim() ? p.lastMsgId.trim() : null;
+      const requested = [];
+      if (scope === "user" || scope === "both") {
+        a.listener.requestOldMessages(ThreadType.User, lastMsgId);
+        requested.push("user");
+      }
+      if (scope === "group" || scope === "both") {
+        a.listener.requestOldMessages(ThreadType.Group, lastMsgId);
+        requested.push("group");
+      }
+      return ok({
+        success: true,
+        requested,
+        note: "Zalo \u0111\u1EA9y d\u1EA7n qua s\u1EF1 ki\u1EC7n old_messages; \u0111\u0103ng k\xFD subscribeHistory tr\xEAn bridge \u0111\u1EC3 nh\u1EADn."
+      });
+    }
     // ── Polls ──────────────────────────────────────────────────────────────
     case "create-poll": {
       if (!p.threadId || !p.title || !p.options?.length) throw new Error("threadId, title, options required");
@@ -62065,6 +62102,8 @@ var init_tool = __esm({
       "edit-note",
       "get-boards",
       "get-labels",
+      // Lịch sử chat
+      "request-old-messages",
       // Catalogs & products
       "create-catalog",
       "update-catalog",
@@ -62238,6 +62277,19 @@ async function publishBridgeInbound(event) {
   }
   return handled;
 }
+async function publishBridgeHistory(events) {
+  if (!events.length || historyHandlers.size === 0) return;
+  for (const handler of historyHandlers) {
+    try {
+      await handler(events);
+    } catch (err2) {
+      console.warn(`[zalo-connect] bridge history subscriber failed: ${String(err2)}`);
+    }
+  }
+}
+function hasBridgeHistorySubscribers() {
+  return historyHandlers.size > 0;
+}
 function readNameTriggers(accountId) {
   const displayName = getCurrentName(accountId);
   const triggers = getRuntimeNameTriggers(accountId);
@@ -62255,7 +62307,7 @@ function readNameTriggers(accountId) {
 }
 function createBridgeService() {
   return {
-    version: 4,
+    version: 5,
     async getStatus(accountId) {
       return {
         connected: isAuthenticated(accountId),
@@ -62295,6 +62347,10 @@ function createBridgeService() {
     subscribeInbound(handler) {
       inboundHandlers.add(handler);
       return () => inboundHandlers.delete(handler);
+    },
+    subscribeHistory(handler) {
+      historyHandlers.add(handler);
+      return () => historyHandlers.delete(handler);
     }
   };
 }
@@ -62303,7 +62359,7 @@ function exposeBridgeService() {
   globalThis.__zaloConnectBridgeService = service;
   return service;
 }
-var inboundHandlers, seq;
+var inboundHandlers, historyHandlers, seq;
 var init_bridge = __esm({
   "src/runtime/bridge.ts"() {
     "use strict";
@@ -62312,6 +62368,7 @@ var init_bridge = __esm({
     init_group_policy();
     init_name_triggers();
     inboundHandlers = /* @__PURE__ */ new Set();
+    historyHandlers = /* @__PURE__ */ new Set();
     seq = 0;
   }
 });
@@ -63760,6 +63817,39 @@ async function monitorZaloConnectProvider(options) {
           return;
         }
         messageQueue.enqueue(converted.threadId, converted);
+      });
+      api.listener.on("old_messages", (msgs, threadType) => {
+        lastListenerEventAt = Date.now();
+        if (!hasBridgeHistorySubscribers()) return;
+        try {
+          const isGroup = threadType === ThreadType.Group;
+          const events = [];
+          for (const msg of msgs || []) {
+            const converted = convertToZaloConnectMessage(msg);
+            if (!converted) continue;
+            const fromSelf = !!msg.isSelf || !!selfUid && msg.data?.uidFrom === selfUid;
+            events.push({
+              accountId: account.accountId,
+              conversationId: converted.threadId,
+              groupId: isGroup ? converted.threadId : void 0,
+              isGroup,
+              messageId: String(converted.msgId ?? ""),
+              senderId: String(converted.metadata?.fromId ?? ""),
+              senderName: String(converted.metadata?.senderName ?? ""),
+              text: converted.content ?? "",
+              // `data.ts` của Zalo là mili-giây, nhưng nhánh dự phòng trong `convertToZaloConnectMessage`
+              // lại trả giây — nên phải đoán theo độ lớn thay vì tin vào một đơn vị cố định.
+              timestamp: converted.timestamp > 1e12 ? converted.timestamp : converted.timestamp * 1e3,
+              fromSelf,
+              mediaUrls: converted.mediaUrls
+            });
+          }
+          if (!events.length) return;
+          runtime2.log?.(`[${account.accountId}] l\u1ECBch s\u1EED: ${events.length} tin c\u0169 (${isGroup ? "nh\xF3m" : "ri\xEAng"})`);
+          void publishBridgeHistory(events);
+        } catch (err2) {
+          runtime2.error(`[${account.accountId}] old_messages error: ${String(err2)}`);
+        }
       });
       api.listener.on("friend_event", (event) => {
         try {
