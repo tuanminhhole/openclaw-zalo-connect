@@ -42,8 +42,8 @@
         {
           "name": "registerChannel",
           "file": "dist/index.js",
-          "line": 79714,
-          "ref": "dist/index.js:79714"
+          "line": 79946,
+          "ref": "dist/index.js:79946"
         },
         {
           "name": "registerChannel",
@@ -54,8 +54,8 @@
         {
           "name": "registerTool",
           "file": "dist/index.js",
-          "line": 79715,
-          "ref": "dist/index.js:79715"
+          "line": 79947,
+          "ref": "dist/index.js:79947"
         },
         {
           "name": "registerTool",
@@ -92,6 +92,7 @@
         "src/features/auto-unsend.ts",
         "src/features/group-event.ts",
         "src/features/group-id-cache.ts",
+        "src/features/history-session.ts",
         "src/features/injection-guard.ts",
         "src/features/msg-id-store.ts",
         "src/features/name-trigger.ts",
@@ -121,21 +122,17 @@
           "path": "openclaw.plugin.json",
           "id": "zalo-connect",
           "name": "OpenClaw Zalo Connect",
-          "version": "3.0.16",
+          "version": "3.1.1",
           "keys": [
             "activation",
-            "author",
             "channelConfigs",
             "channels",
-            "compat",
             "configSchema",
             "contracts",
             "description",
-            "homepage",
             "icon",
             "id",
             "kind",
-            "license",
             "name",
             "version"
           ],
@@ -153,7 +150,7 @@
       "package": {
         "path": "package.json",
         "name": "openclaw-zalo-connect",
-        "version": "3.0.16",
+        "version": "3.1.1",
         "type": "module",
         "main": "dist/index.js",
         "npmPack": {
@@ -230,7 +227,7 @@
         {
           "path": "package.json",
           "name": "openclaw-zalo-connect",
-          "version": "3.0.16",
+          "version": "3.1.1",
           "type": "module",
           "main": "dist/index.js",
           "npmPack": {
@@ -323,8 +320,8 @@
         {
           "specifier": "openclaw/plugin-sdk/agent-config-primitives",
           "file": "dist/index.js",
-          "line": 64013,
-          "ref": "dist/index.js:64013"
+          "line": 64245,
+          "ref": "dist/index.js:64245"
         },
         {
           "specifier": "openclaw/plugin-sdk/agent-config-primitives",
@@ -335,8 +332,8 @@
         {
           "specifier": "openclaw/plugin-sdk/allow-from",
           "file": "dist/index.js",
-          "line": 62288,
-          "ref": "dist/index.js:62288"
+          "line": 62441,
+          "ref": "dist/index.js:62441"
         },
         {
           "specifier": "openclaw/plugin-sdk/allow-from",
@@ -347,8 +344,8 @@
         {
           "specifier": "openclaw/plugin-sdk/channel-config-primitives",
           "file": "dist/index.js",
-          "line": 64012,
-          "ref": "dist/index.js:64012"
+          "line": 64244,
+          "ref": "dist/index.js:64244"
         },
         {
           "specifier": "openclaw/plugin-sdk/channel-config-primitives",
@@ -389,8 +386,8 @@
         {
           "specifier": "openclaw/plugin-sdk/channel-feedback",
           "file": "dist/index.js",
-          "line": 62287,
-          "ref": "dist/index.js:62287"
+          "line": 62440,
+          "ref": "dist/index.js:62440"
         },
         {
           "specifier": "openclaw/plugin-sdk/channel-feedback",
@@ -401,20 +398,20 @@
         {
           "specifier": "openclaw/plugin-sdk/channel-plugin-common",
           "file": "dist/index.js",
-          "line": 63948,
-          "ref": "dist/index.js:63948"
+          "line": 64180,
+          "ref": "dist/index.js:64180"
         },
         {
           "specifier": "openclaw/plugin-sdk/channel-plugin-common",
           "file": "dist/index.js",
-          "line": 63952,
-          "ref": "dist/index.js:63952"
+          "line": 64184,
+          "ref": "dist/index.js:64184"
         },
         {
           "specifier": "openclaw/plugin-sdk/channel-plugin-common",
           "file": "dist/index.js",
-          "line": 78652,
-          "ref": "dist/index.js:78652"
+          "line": 78884,
+          "ref": "dist/index.js:78884"
         },
         {
           "specifier": "openclaw/plugin-sdk/channel-plugin-common",
@@ -455,8 +452,8 @@
         {
           "specifier": "openclaw/plugin-sdk/channel-reply-pipeline",
           "file": "dist/index.js",
-          "line": 62286,
-          "ref": "dist/index.js:62286"
+          "line": 62439,
+          "ref": "dist/index.js:62439"
         },
         {
           "specifier": "openclaw/plugin-sdk/channel-reply-pipeline",
@@ -473,8 +470,8 @@
         {
           "specifier": "openclaw/plugin-sdk/plugin-entry",
           "file": "dist/index.js",
-          "line": 63937,
-          "ref": "dist/index.js:63937"
+          "line": 64169,
+          "ref": "dist/index.js:64169"
         },
         {
           "specifier": "openclaw/plugin-sdk/plugin-entry",
@@ -497,8 +494,8 @@
         {
           "specifier": "openclaw/plugin-sdk/setup",
           "file": "dist/index.js",
-          "line": 78657,
-          "ref": "dist/index.js:78657"
+          "line": 78889,
+          "ref": "dist/index.js:78889"
         },
         {
           "specifier": "openclaw/plugin-sdk/setup",
@@ -544,7 +541,7 @@
       "evidence": [
         "package.json",
         "openclaw-zalo-connect",
-        "version:3.0.16"
+        "version:3.1.1"
       ]
     },
     {
