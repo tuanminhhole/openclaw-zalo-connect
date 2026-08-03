@@ -64014,6 +64014,7 @@ async function monitorZaloConnectProvider(options) {
         lastListenerEventAt = Date.now();
         reconnectAttempts = 0;
         resetHistorySession(account.accountId || "default");
+        statusSink?.({ running: true, connected: true, lastError: null });
         runtime2.log?.(`[${account.accountId}] listener connected`);
       });
       api.listener.start({ retryOnClose: false });
@@ -64091,6 +64092,7 @@ async function monitorZaloConnectProvider(options) {
         return;
       }
       runtime2.error(`[${account.accountId}] listener start failed: ${errMsg}`);
+      statusSink?.({ running: false, connected: false, lastError: errMsg });
       if (!stopped && !abortSignal.aborted) {
         logVerbose(core, runtime2, `[${account.accountId}] retrying in 10s...`);
         restartTimer = setTimeout(startListener, 1e4);

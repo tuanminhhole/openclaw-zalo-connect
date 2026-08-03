@@ -57,7 +57,13 @@ export type ZaloConnectMonitorOptions = {
   config: OpenClawConfig;
   runtime: RuntimeEnv;
   abortSignal: AbortSignal;
-  statusSink?: (patch: { lastInboundAt?: number; lastOutboundAt?: number }) => void;
+  statusSink?: (patch: {
+    lastInboundAt?: number;
+    lastOutboundAt?: number;
+    running?: boolean;
+    connected?: boolean;
+    lastError?: string | null;
+  }) => void;
 };
 
 export type ZaloConnectMonitorResult = {
@@ -2086,6 +2092,7 @@ export async function monitorZaloConnectProvider(
         // mạng, `request-old-messages` sẽ vĩnh viễn báo "đã lấy rồi" và không bao giờ lấy được nữa
         // cho tới khi khởi động lại plugin.
         resetHistorySession(account.accountId || "default");
+        statusSink?.({ running: true, connected: true, lastError: null });
         runtime.log?.(`[${account.accountId}] listener connected`);
       });
 
@@ -2179,6 +2186,10 @@ export async function monitorZaloConnectProvider(
         return;
       }
       runtime.error(`[${account.accountId}] listener start failed: ${errMsg}`);
+      // Surface the failure to the gateway's account status — without this the account
+      // keeps reporting running/no-error while stuck in the retry loop, and dashboards
+      // (channels status --json, setup UI) show a connected bot that is actually dead.
+      statusSink?.({ running: false, connected: false, lastError: errMsg });
       if (!stopped && !abortSignal.aborted) {
         logVerbose(core, runtime, `[${account.accountId}] retrying in 10s...`);
         restartTimer = setTimeout(startListener, 10000);
