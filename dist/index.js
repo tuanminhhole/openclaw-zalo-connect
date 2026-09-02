@@ -1,3 +1,4 @@
+import { createRequire as __zcCreateRequire } from 'node:module'; const require = __zcCreateRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -62426,6 +62427,7 @@ var init_bridge = __esm({
 // src/channel/monitor.ts
 var monitor_exports = {};
 __export(monitor_exports, {
+  _buildAttachmentPathNote: () => buildAttachmentPathNote,
   _convertToZaloConnectMessage: () => convertToZaloConnectMessage,
   _filterAttachableMediaPaths: () => filterAttachableMediaPaths,
   _isDuplicateMsg: () => isDuplicateMsg,
@@ -62819,6 +62821,17 @@ function convertToZaloConnectMessage(msg) {
     content = extractMediaFromObject(attachment, mediaUrls, mediaTypes);
     if (!content && mediaUrls.length > 0) content = "[Media attachment]";
   }
+  if (mediaUrls.length === 0 && content) {
+    const extMatch = /\.([a-z0-9]{1,5})$/i.exec(content.trim());
+    if (extMatch && KNOWN_FILE_EXT_RE.test(extMatch[1])) {
+      try {
+        console.warn(
+          `[zalo-connect] file-like message carried NO media url: msgType=${data.msgType} contentType=${typeof data.content} raw=${JSON.stringify(data.content).slice(0, 400)}`
+        );
+      } catch {
+      }
+    }
+  }
   if (content && isSystemNotificationContent(content)) return null;
   if (!content.trim() && mediaUrls.length === 0) return null;
   if (!msg.threadId) return null;
@@ -62913,6 +62926,15 @@ async function filterAttachableMediaPaths(paths) {
     filtered.push(filePath);
   }
   return filtered;
+}
+function buildAttachmentPathNote(paths) {
+  const nonImage = (paths ?? []).filter((p) => !IMAGE_URL_RE.test(p));
+  if (nonImage.length === 0) return "";
+  return `
+
+[Attached file(s) already saved to disk. Use these EXACT absolute paths with your exec/read tools \u2014 the files are NOT inside your workspace, do not search for them there:
+${nonImage.join("\n")}
+]`;
 }
 async function processMessage(message, account, config2, core, runtime2, statusSink) {
   const { threadId, content, timestamp, metadata } = message;
@@ -63216,6 +63238,7 @@ ${bodyWithSender}`;
     logVerbose(core, runtime2, `Skipping ${message.mediaUrls.length} attachment(s) in group ${chatId} (not mentioned)`);
   }
   const effectiveLocalMediaPaths = localMediaPaths && localMediaPaths.length > 0 ? localMediaPaths : void 0;
+  bodyWithSender += buildAttachmentPathNote(effectiveLocalMediaPaths);
   const body = core.channel.reply.formatAgentEnvelope({
     channel: "Zalo JS",
     from: fromLabel,
@@ -64242,7 +64265,7 @@ import {
   GroupPolicySchema,
   MarkdownConfigSchema
 } from "openclaw/plugin-sdk/channel-config-primitives";
-import { ToolPolicySchema } from "openclaw/plugin-sdk/agent-config-primitives";
+import { ToolPolicySchema } from "openclaw/plugin-sdk/channel-config-schema";
 
 // node_modules/zod/v4/classic/external.js
 var external_exports = {};

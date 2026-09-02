@@ -7,7 +7,7 @@
 *Mỗi tài khoản có session, API client, listener và tuyến phản hồi riêng — đăng nhập QR, chạy đồng thời, không cần Zalo OA.*
 
 <p align="center">
-  <a href="https://github.com/tuanminhhole/openclaw-zalo-connect/releases/tag/v3.1.2"><img src="https://img.shields.io/badge/RELEASE-v3.1.2-0EA5E9?style=for-the-badge" alt="Version 3.1.0" /></a>
+  <a href="https://github.com/tuanminhhole/openclaw-zalo-connect/releases/tag/v3.1.3"><img src="https://img.shields.io/badge/RELEASE-v3.1.3-0EA5E9?style=for-the-badge" alt="Version 3.1.0" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/LICENSE-MIT-success?style=for-the-badge" alt="MIT License" /></a>
   <a href="https://openclaw.ai"><img src="https://img.shields.io/badge/OpenClaw-%E2%89%A52026.5.7-7C3AED?style=for-the-badge" alt="OpenClaw 2026.5.7+" /></a>
   <a href="https://github.com/tuanminhhole/openclaw-zalo-connect/stargazers"><img src="https://img.shields.io/github/stars/tuanminhhole/openclaw-zalo-connect?style=for-the-badge&color=eab308&logo=github&logoColor=white" alt="GitHub Stars" /></a>

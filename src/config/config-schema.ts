@@ -15,7 +15,10 @@ import {
   GroupPolicySchema,
   MarkdownConfigSchema,
 } from "openclaw/plugin-sdk/channel-config-primitives";
-import { ToolPolicySchema } from "openclaw/plugin-sdk/agent-config-primitives";
+// openclaw 2026.8.x dropped the plugin-sdk/agent-config-primitives subpath; ToolPolicySchema
+// is exported from channel-config-schema on BOTH 2026.7 and 2026.8 (verified against tarballs),
+// so this import keeps the plugin loadable across the peer range.
+import { ToolPolicySchema } from "openclaw/plugin-sdk/channel-config-schema";
 import { z } from "zod";
 
 // --- Per-group settings (same shape Telegram uses for its groups record) ---

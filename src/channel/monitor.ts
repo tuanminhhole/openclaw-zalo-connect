@@ -610,6 +610,22 @@ function convertToZaloConnectMessage(msg: Message): ZaloConnectMessage | null {
     if (!content && mediaUrls.length > 0) content = "[Media attachment]";
   }
 
+  // Chẩn đoán tin FILE bị rơi link tải: owner gửi .zip qua DM mà bot chỉ thấy TÊN TỆP (đo
+  // 31/08/2026, bot "Em Mơ": text = "video-editor-….zip", media_json = null ⇒ mediaUrls rỗng ngay
+  // từ converter). Không bắt được sự kiện thật thì không sửa được — nên khi nội dung TRÔNG NHƯ tên
+  // tệp mà không bóc ra được URL nào, ghi lại hình dạng thô của content để lần gửi sau lộ nguyên nhân.
+  if (mediaUrls.length === 0 && content) {
+    const extMatch = /\.([a-z0-9]{1,5})$/i.exec(content.trim());
+    if (extMatch && KNOWN_FILE_EXT_RE.test(extMatch[1])) {
+      try {
+        console.warn(
+          `[zalo-connect] file-like message carried NO media url: msgType=${(data as { msgType?: unknown }).msgType}`
+          + ` contentType=${typeof data.content} raw=${JSON.stringify(data.content).slice(0, 400)}`,
+        );
+      } catch { /* JSON.stringify có thể nổ với cấu trúc vòng — chẩn đoán không được làm rơi tin */ }
+    }
+  }
+
   if (content && isSystemNotificationContent(content)) return null;
 
   if (!content.trim() && mediaUrls.length === 0) return null;
@@ -731,8 +747,22 @@ async function filterAttachableMediaPaths(paths: string[]): Promise<string[]> {
   return filtered;
 }
 
+// Non-image files (zip/pdf/doc…) are only reachable through the agent's exec/read
+// tools, and weak routed models routinely ignore the structured MediaPath field:
+// measured 01/09/2026 (mac_dr-tuan) — `read media://inbound/x.zip` succeeded, yet the
+// model then ran `find .` inside its WORKSPACE, found nothing, and told the owner the
+// file "was never materialized". Spell the absolute path out in the turn body itself,
+// where every model must see it. Images are excluded: they are attached natively and
+// arrive many times a day — noting each one would just pollute the prompt.
+function buildAttachmentPathNote(paths: string[] | undefined): string {
+  const nonImage = (paths ?? []).filter((p) => !IMAGE_URL_RE.test(p));
+  if (nonImage.length === 0) return "";
+  return `\n\n[Attached file(s) already saved to disk. Use these EXACT absolute paths with your exec/read tools — the files are NOT inside your workspace, do not search for them there:\n${nonImage.join("\n")}\n]`;
+}
+
 /** Exported for testing only. */
 export {
+  buildAttachmentPathNote as _buildAttachmentPathNote,
   convertToZaloConnectMessage as _convertToZaloConnectMessage,
   filterAttachableMediaPaths as _filterAttachableMediaPaths,
   isSystemNotificationContent as _isSystemNotificationContent,
@@ -1139,6 +1169,8 @@ async function processMessage(
   // Only use attachments from the current message. No buffer/quote media merge:
   // this prevents stale image paths from being treated as customer uploads.
   const effectiveLocalMediaPaths = localMediaPaths && localMediaPaths.length > 0 ? localMediaPaths : undefined;
+
+  bodyWithSender += buildAttachmentPathNote(effectiveLocalMediaPaths);
 
   const body = core.channel.reply.formatAgentEnvelope({
     channel: "Zalo JS",
