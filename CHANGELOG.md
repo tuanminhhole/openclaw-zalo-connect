@@ -4,30 +4,35 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 Định dạng dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.1.4] - 2026-09-05
+
+### 🚑 Cài từ ClawHub không còn chết giữa chừng
+
+Bản 3.1.3 tải về được nhưng **cài hỏng** trên máy mới: tới bước "Installing plugin dependencies…"
+là npm gục sau khoảng hai phút, plugin không vào được, và bot mất luôn kênh Zalo — log gateway
+kêu `unknown channel id: zalo-connect`, bấm quét QR thì không ra mã. Đã vấp trên ba máy khách
+(hai lần ngày 03/09, một lần ngày 05/09), cả Docker lẫn cài thẳng, Windows lẫn Linux.
+
+Nguyên nhân: gói tải từ ClawHub mang theo danh sách **thư viện dành cho lập trình viên** (dùng để
+build và chạy test), mà npm lại vấp chính danh sách đó khi dựng cây phụ thuộc — kể cả khi OpenClaw
+đã bảo nó bỏ qua. Từ bản này, gói phát hành **chỉ còn thư viện cần cho lúc chạy**: nhẹ hơn, cài
+nhanh hơn, và không còn chỗ cho lỗi đó phát sinh. Mã nguồn không đổi một dòng.
+
+Máy đang chạy 3.1.3 mà cài được rồi thì không cần làm gì. Máy nào cài hỏng: cài lại là xong.
+
 ## [3.1.3] - 2026-09-02
 
-### Fixed
+### 🚑 Chạy được trên OpenClaw 2026.8 + bot hết chối "không thấy file"
 
-- **Tương thích openclaw 2026.8.x — plugin 3.1.2 KHÔNG load được trên 2026.8** (đo 02/09 trên
-  bot production, hai bệnh chồng nhau):
-  - Import `openclaw/plugin-sdk/agent-config-primitives` — subpath này 2026.8 đã bỏ. Đổi sang
-    `plugin-sdk/channel-config-schema` (đã đối chiếu tarball: export `ToolPolicySchema` ở CẢ
-    2026.7 lẫn 2026.8 — một import chạy hai đời).
-  - Loader plugin 2026.8 chạy ESM thuần không có `require` → shim `__require` của esbuild nổ
-    `Dynamic require of "events" is not supported`. Build thêm banner `createRequire` — bundle
-    chạy được trên cả hai đời loader.
+OpenClaw 2026.8 đổi bộ khung cho plugin — bản 3.1.2 **không khởi động được** trên máy đã nâng
+cấp (bot mất hẳn kênh Zalo). Bản này sửa cho chạy trên cả 2026.7 lẫn 2026.8, không bắt ai nâng
+cấp gấp.
 
-### Added
-
-- **Ghi chú đường dẫn tuyệt đối cho file đính kèm không phải ảnh** — model yếu (smart-route)
-  bỏ qua trường `MediaPath` có cấu trúc: `read media://` ăn nhưng lại `find` trong workspace
-  rồi báo owner "file chưa được lưu" (đo 01/09: owner gửi skill .zip 9 lần đều bị chối). Kênh
-  giờ ghi thẳng vào thân lượt chat: `[Attached file(s) already saved to disk... EXACT absolute
-  paths... NOT inside your workspace]` — model nào cũng phải thấy. Ảnh không ghi chú (đã attach
-  native, note mỗi tấm chỉ làm nhiễu prompt).
-- **Chẩn đoán tin file rơi link tải** — khi nội dung TRÔNG NHƯ tên tệp mà `media_json` không bóc
-  ra được URL nào, log lại hình dạng thô của sự kiện (`file-like message carried NO media url`)
-  để lần gửi sau lộ nguyên nhân thay vì mất dấu.
+- **File khách gửi qua chat được "chỉ đường" tận nơi cho AI.** Trước đây model yếu tải file về
+  xong vẫn nói "em không thấy file" vì đi tìm sai chỗ (có khách gửi một file 9 lần đều bị chối).
+  Giờ kênh ghi thẳng vị trí file vào tin nhắn cho AI — model nào cũng thấy.
+- **Gắn "máy đo" cho ca tin nhắn file bị rơi link tải** — lần tới gặp là log tự khai nguyên
+  nhân, không còn mất dấu.
 
 ## [3.1.0] — 2026-08-02
 
