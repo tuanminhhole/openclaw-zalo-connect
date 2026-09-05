@@ -4,6 +4,22 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 Định dạng dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.1.4] - 2026-09-05
+
+### 🚑 Cài từ ClawHub không còn chết giữa chừng
+
+Bản 3.1.3 tải về được nhưng **cài hỏng** trên máy mới: tới bước "Installing plugin dependencies…"
+là npm gục sau khoảng hai phút, plugin không vào được, và bot mất luôn kênh Zalo — log gateway
+kêu `unknown channel id: zalo-connect`, bấm quét QR thì không ra mã. Đã vấp trên ba máy khách
+(hai lần ngày 03/09, một lần ngày 05/09), cả Docker lẫn cài thẳng, Windows lẫn Linux.
+
+Nguyên nhân: gói tải từ ClawHub mang theo danh sách **thư viện dành cho lập trình viên** (dùng để
+build và chạy test), mà npm lại vấp chính danh sách đó khi dựng cây phụ thuộc — kể cả khi OpenClaw
+đã bảo nó bỏ qua. Từ bản này, gói phát hành **chỉ còn thư viện cần cho lúc chạy**: nhẹ hơn, cài
+nhanh hơn, và không còn chỗ cho lỗi đó phát sinh. Mã nguồn không đổi một dòng.
+
+Máy đang chạy 3.1.3 mà cài được rồi thì không cần làm gì. Máy nào cài hỏng: cài lại là xong.
+
 ## [3.1.3] - 2026-09-02
 
 ### 🚑 Chạy được trên OpenClaw 2026.8 + bot hết chối "không thấy file"
