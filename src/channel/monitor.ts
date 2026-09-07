@@ -326,17 +326,41 @@ async function resolveUserName(userId: string, accountId: string): Promise<strin
   }
 }
 
-async function resolveGroupName(groupId: string, accountId: string): Promise<string> {
+async function resolveGroupName(groupId: string, accountId: string, hint?: string): Promise<string> {
   const cacheKey = `${accountId}|${groupId}`;
+  // Tên đọc thẳng từ tin nhắn được tin trước: nó luôn đúng cho tin này và không tốn lượt gọi mạng.
+  // Trước đây chỉ có đường getGroupInfo — hụt một lần là fromLabel rơi về "group:<id>", host slug
+  // thành "zalo-connect:g-zalo-connect-group-<id>" và khung chat hiện nguyên chuỗi đó.
+  if (hint?.trim()) {
+    const name = hint.trim();
+    groupNameCache.set(cacheKey, { name, cachedAt: Date.now() });
+    return name;
+  }
   const cached = groupNameCache.get(cacheKey);
   if (cached && Date.now() - cached.cachedAt < NAME_CACHE_TTL) return cached.name;
   try {
     const api = await getApi(accountId);
-    const infoResp = await api.getGroupInfo([groupId]);
-    const info = infoResp?.gridInfoMap?.[groupId];
-    const name = (info as any)?.name || `group:${groupId}`;
-    groupNameCache.set(cacheKey, { name, cachedAt: Date.now() });
-    return name;
+    // zca-js trả `gridInfoMap` rỗng ở dạng gọi này tuỳ phiên bản/đầu vào, nên thử cả hai dạng
+    // tham số. Đường directory (`listGroups`) lấy tên nhóm ngon lành bằng cùng API — chỉ khác
+    // chỗ nó truyền cả DANH SÁCH id — nên bám theo đó rồi mới chịu thua. Hụt tên là khung chat
+    // rơi về "provider:g-<id>": host dựng nhãn nhóm từ chính chuỗi mình trả về ở đây
+    // (buildGroupDisplayName → groupChannel || subject || space || id).
+    const readName = (resp: unknown): string | undefined => {
+      const info = (resp as { gridInfoMap?: Record<string, { name?: string }> } | undefined)?.gridInfoMap?.[groupId];
+      const value = info?.name;
+      return typeof value === "string" && value.trim() ? value.trim() : undefined;
+    };
+    let name = readName(await api.getGroupInfo(groupId as unknown as string[]));
+    if (!name) name = readName(await api.getGroupInfo([groupId]));
+    if (!name) {
+      // Đường cuối: liệt kê toàn bộ nhóm rồi hỏi thông tin theo lô — đúng cách `listGroups` làm.
+      const all = await api.getAllGroups();
+      const ids = Object.keys((all as { gridVerMap?: Record<string, unknown> } | undefined)?.gridVerMap ?? {});
+      if (ids.includes(groupId)) name = readName(await api.getGroupInfo(ids));
+    }
+    const resolved = name || `group:${groupId}`;
+    if (name) groupNameCache.set(cacheKey, { name, cachedAt: Date.now() });
+    return resolved;
   } catch {
     return `group:${groupId}`;
   }
@@ -676,8 +700,22 @@ function convertToZaloConnectMessage(msg: Message): ZaloConnectMessage | null {
       groupId: isGroup ? threadId : undefined,
       senderName,
       fromId: senderId,
+      groupName: isGroup ? resolveGroupNameFromMessageData(data) : undefined,
     },
   };
+}
+
+/**
+ * Tên nhóm nằm sẵn trong payload của tin — Zalo đặt nó ở nhiều khoá khác nhau tuỳ loại sự kiện.
+ * Đọc ở đây thì khung chat có tên ngay từ tin ĐẦU TIÊN, không phải chờ một lượt gọi mạng có thể
+ * hụt (`getGroupInfo`). Cùng danh sách khoá mà kênh chính chủ @openclaw/zalouser dùng.
+ */
+function resolveGroupNameFromMessageData(data: Record<string, unknown>): string | undefined {
+  for (const key of ["groupName", "gName", "idToName", "threadName", "roomName"] as const) {
+    const value = (data as Record<string, unknown>)[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
 }
 
 function isImageAttachment(url: string, mediaType?: string): boolean {
@@ -1051,7 +1089,7 @@ async function processMessage(
 
   const resolvedSenderName = senderName || await resolveUserName(senderId, account.accountId);
   const fromLabel = isGroup
-    ? await resolveGroupName(chatId, account.accountId)
+    ? await resolveGroupName(chatId, account.accountId, metadata?.groupName)
     : resolvedSenderName || `user:${senderId}`;
 
   // Auto-typing: immediately show typing indicator when processing starts
@@ -1189,12 +1227,23 @@ async function processMessage(
     BodyForAgent: bodyWithSender,
     RawBody: rawBody,
     CommandBody: rawBody,
-    From: isGroup ? `'zalo-connect':group:${chatId}` : `'zalo-connect':${senderId}`,
-    To: `'zalo-connect':${chatId}`,
+    // ⚠️ KHÔNG bọc tên kênh trong dấu nháy đơn. Bản cũ viết `'zalo-connect':${chatId}` với dấu
+    // nháy nằm NGAY TRONG chuỗi, nên host lưu conversations.peer_id = "'zalo-connect':7761089…"
+    // thay vì uid Zalo thuần. Peer id bẩn ⇒ host không tra được danh bạ ⇒ khung chat hiện đúng
+    // chuỗi thô đó thay vì tên người/tên nhóm (đo trên máy khách 07/09/2026; kênh chính chủ
+    // @openclaw/zalouser ghi `zalouser:group:<id>` và hiển thị ra "#Test3", "Kent").
+    From: isGroup ? `zalo-connect:group:${chatId}` : `zalo-connect:${senderId}`,
+    To: `zalo-connect:${chatId}`,
     SessionKey: route.sessionKey,
     AccountId: route.accountId,
     ChatType: isGroup ? "group" : "direct",
     ConversationLabel: fromLabel,
+    // Tên nhóm cho HOST, không phải cho model: host lưu nó thành `groupChannel` của phiên và
+    // khung chat lấy ra để hiện "#Tên nhóm". Thiếu hai khoá này thì mọi nhóm hiện ra id thô
+    // (đo trên máy khách 07/09/2026). Telegram đẩy `msg.chat.title` vào đúng chỗ này; kênh chính
+    // chủ @openclaw/zalouser đẩy `GroupSubject`/`GroupChannel` qua `extra` của buildContext.
+    GroupSubject: isGroup ? fromLabel || undefined : undefined,
+    GroupChannel: isGroup ? fromLabel || undefined : undefined,
     SenderName: resolvedSenderName || undefined,
     SenderId: senderId,
     CommandAuthorized: commandAuthorized,
@@ -1202,7 +1251,7 @@ async function processMessage(
     Surface: "zalo-connect",
     MessageSid: message.msgId ?? `${timestamp}`,
     OriginatingChannel: "zalo-connect",
-    OriginatingTo: `'zalo-connect':${chatId}`,
+    OriginatingTo: `zalo-connect:${chatId}`,
     WasMentioned: wasMentioned || undefined,
     // Only attach media when mentioned (groups) or in DMs
     MediaPaths: shouldProcessImages && effectiveLocalMediaPaths && effectiveLocalMediaPaths.length > 0 ? effectiveLocalMediaPaths : undefined,

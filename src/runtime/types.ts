@@ -98,5 +98,12 @@ export type ZaloConnectMessage = {
     groupId?: string;
     senderName?: string;
     fromId?: string;
+    /**
+     * Tên nhóm đọc thẳng từ payload Zalo của chính tin nhắn này. Có nó thì khung chat hiện
+     * "#Tên nhóm" thay vì chuỗi id thô — không phải chờ getGroupInfo (gọi mạng, hay hụt).
+     * Kênh chính chủ @openclaw/zalouser làm đúng như vậy: thử lần lượt groupName · gName ·
+     * idToName · threadName · roomName ngay trên dữ liệu tin.
+     */
+    groupName?: string;
   };
 };
