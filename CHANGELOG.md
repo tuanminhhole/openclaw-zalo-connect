@@ -4,6 +4,13 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 Định dạng dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.1.5] - 2026-09-07
+
+### 🚑 Khung chat gọi đúng tên người và tên nhóm, phiên Zalo không còn đè nhau
+
+- **Khung chat hiện tên thật** - tin nhắn riêng hiện tên người, nhóm hiện tên nhóm, thay cho dòng id khó đọc kiểu `zalo-connect:g-zalo-connect-group-7761089409086698239`.
+- **Phiên đăng nhập Zalo cất riêng cho từng bot** - trước đây các bot trên cùng một máy dùng chung một chỗ lưu, bot này đăng nhập là đá văng bot kia. Máy đang chạy tự dời sang chỗ mới, không phải quét lại QR.
+
 ## [3.1.4] - 2026-09-05
 
 ### 🚑 Cài từ ClawHub không còn chết giữa chừng

@@ -40169,16 +40169,43 @@ var init_dist = __esm({
 });
 
 // src/client/credentials.ts
-import { readFileSync, writeFileSync, unlinkSync, existsSync, chmodSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, unlinkSync, existsSync, chmodSync, mkdirSync, renameSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 function normalizeAccountId(accountId) {
   return String(accountId || "default").trim() || "default";
 }
-function credentialPath(accountId) {
+function stateDir() {
+  const fromEnv = process.env.OPENCLAW_STATE_DIR?.trim() || process.env.OPENCLAW_HOME?.trim();
+  return fromEnv || join(homedir(), ".openclaw");
+}
+function credentialSuffix(accountId) {
   const normalized = normalizeAccountId(accountId);
-  const suffix = normalized === "default" ? "" : `-${normalized.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-  return join(homedir(), ".openclaw", `zalo-connect-credentials${suffix}.json`);
+  return normalized === "default" ? "" : `-${normalized.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+}
+function legacyCredentialPath(accountId) {
+  return join(homedir(), ".openclaw", `zalo-connect-credentials${credentialSuffix(accountId)}.json`);
+}
+function credentialPath(accountId) {
+  const path8 = join(stateDir(), "credentials", "zalo-connect", `credentials${credentialSuffix(accountId)}.json`);
+  migrateLegacyCredentials(accountId, path8);
+  return path8;
+}
+function migrateLegacyCredentials(accountId, target) {
+  if (existsSync(target)) return;
+  const legacy = legacyCredentialPath(accountId);
+  if (legacy === target || !existsSync(legacy)) return;
+  try {
+    const dir = dirname(target);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 448 });
+    writeFileSync(target, readFileSync(legacy, "utf-8"), { encoding: "utf-8", mode: 384 });
+    try {
+      chmodSync(target, 384);
+    } catch {
+    }
+    renameSync(legacy, `${legacy}.migrated`);
+  } catch {
+  }
 }
 function saveCredentials(data, accountId) {
   const path8 = credentialPath(accountId);
@@ -62613,17 +62640,32 @@ async function resolveUserName(userId, accountId) {
     return userId;
   }
 }
-async function resolveGroupName(groupId, accountId) {
+async function resolveGroupName(groupId, accountId, hint) {
   const cacheKey = `${accountId}|${groupId}`;
+  if (hint?.trim()) {
+    const name = hint.trim();
+    groupNameCache.set(cacheKey, { name, cachedAt: Date.now() });
+    return name;
+  }
   const cached2 = groupNameCache.get(cacheKey);
   if (cached2 && Date.now() - cached2.cachedAt < NAME_CACHE_TTL) return cached2.name;
   try {
     const api = await getApi(accountId);
-    const infoResp = await api.getGroupInfo([groupId]);
-    const info = infoResp?.gridInfoMap?.[groupId];
-    const name = info?.name || `group:${groupId}`;
-    groupNameCache.set(cacheKey, { name, cachedAt: Date.now() });
-    return name;
+    const readName = (resp) => {
+      const info = resp?.gridInfoMap?.[groupId];
+      const value = info?.name;
+      return typeof value === "string" && value.trim() ? value.trim() : void 0;
+    };
+    let name = readName(await api.getGroupInfo(groupId));
+    if (!name) name = readName(await api.getGroupInfo([groupId]));
+    if (!name) {
+      const all = await api.getAllGroups();
+      const ids = Object.keys(all?.gridVerMap ?? {});
+      if (ids.includes(groupId)) name = readName(await api.getGroupInfo(ids));
+    }
+    const resolved = name || `group:${groupId}`;
+    if (name) groupNameCache.set(cacheKey, { name, cachedAt: Date.now() });
+    return resolved;
   } catch {
     return `group:${groupId}`;
   }
@@ -62865,9 +62907,17 @@ function convertToZaloConnectMessage(msg) {
       isGroup,
       groupId: isGroup ? threadId : void 0,
       senderName,
-      fromId: senderId
+      fromId: senderId,
+      groupName: isGroup ? resolveGroupNameFromMessageData(data) : void 0
     }
   };
+}
+function resolveGroupNameFromMessageData(data) {
+  for (const key2 of ["groupName", "gName", "idToName", "threadName", "roomName"]) {
+    const value = data[key2];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return void 0;
 }
 function isImageAttachment(url2, mediaType) {
   const type = mediaType?.toLowerCase() ?? "";
@@ -63144,7 +63194,7 @@ ${effectiveContent}`;
     peer: { kind: peer.kind, id: peer.id }
   });
   const resolvedSenderName = senderName || await resolveUserName(senderId, account.accountId);
-  const fromLabel = isGroup ? await resolveGroupName(chatId, account.accountId) : resolvedSenderName || `user:${senderId}`;
+  const fromLabel = isGroup ? await resolveGroupName(chatId, account.accountId, metadata?.groupName) : resolvedSenderName || `user:${senderId}`;
   try {
     const api = await getApi(account.accountId);
     const type = isGroup ? ThreadType.Group : ThreadType.User;
@@ -63255,12 +63305,23 @@ ${bodyWithSender}`;
     BodyForAgent: bodyWithSender,
     RawBody: rawBody,
     CommandBody: rawBody,
-    From: isGroup ? `'zalo-connect':group:${chatId}` : `'zalo-connect':${senderId}`,
-    To: `'zalo-connect':${chatId}`,
+    // ⚠️ KHÔNG bọc tên kênh trong dấu nháy đơn. Bản cũ viết `'zalo-connect':${chatId}` với dấu
+    // nháy nằm NGAY TRONG chuỗi, nên host lưu conversations.peer_id = "'zalo-connect':7761089…"
+    // thay vì uid Zalo thuần. Peer id bẩn ⇒ host không tra được danh bạ ⇒ khung chat hiện đúng
+    // chuỗi thô đó thay vì tên người/tên nhóm (đo trên máy khách 07/09/2026; kênh chính chủ
+    // @openclaw/zalouser ghi `zalouser:group:<id>` và hiển thị ra "#Test3", "Kent").
+    From: isGroup ? `zalo-connect:group:${chatId}` : `zalo-connect:${senderId}`,
+    To: `zalo-connect:${chatId}`,
     SessionKey: route.sessionKey,
     AccountId: route.accountId,
     ChatType: isGroup ? "group" : "direct",
     ConversationLabel: fromLabel,
+    // Tên nhóm cho HOST, không phải cho model: host lưu nó thành `groupChannel` của phiên và
+    // khung chat lấy ra để hiện "#Tên nhóm". Thiếu hai khoá này thì mọi nhóm hiện ra id thô
+    // (đo trên máy khách 07/09/2026). Telegram đẩy `msg.chat.title` vào đúng chỗ này; kênh chính
+    // chủ @openclaw/zalouser đẩy `GroupSubject`/`GroupChannel` qua `extra` của buildContext.
+    GroupSubject: isGroup ? fromLabel || void 0 : void 0,
+    GroupChannel: isGroup ? fromLabel || void 0 : void 0,
     SenderName: resolvedSenderName || void 0,
     SenderId: senderId,
     CommandAuthorized: commandAuthorized,
@@ -63268,7 +63329,7 @@ ${bodyWithSender}`;
     Surface: "zalo-connect",
     MessageSid: message.msgId ?? `${timestamp}`,
     OriginatingChannel: "zalo-connect",
-    OriginatingTo: `'zalo-connect':${chatId}`,
+    OriginatingTo: `zalo-connect:${chatId}`,
     WasMentioned: wasMentioned || void 0,
     // Only attach media when mentioned (groups) or in DMs
     MediaPaths: shouldProcessImages && effectiveLocalMediaPaths && effectiveLocalMediaPaths.length > 0 ? effectiveLocalMediaPaths : void 0,
