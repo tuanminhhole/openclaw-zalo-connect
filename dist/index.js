@@ -62367,6 +62367,12 @@ var init_tool = __esm({
 });
 
 // src/runtime/bridge.ts
+function sharedHandlerSet(kind) {
+  const g = globalThis;
+  const registry2 = g.__zaloConnectBridgeHandlers ??= {};
+  if (!(registry2[kind] instanceof Set)) registry2[kind] = /* @__PURE__ */ new Set();
+  return registry2[kind];
+}
 async function publishBridgeInbound(event) {
   let handled = false;
   for (const handler of inboundHandlers) {
@@ -62488,9 +62494,9 @@ var init_bridge = __esm({
     init_zalo_client();
     init_group_policy();
     init_name_triggers();
-    inboundHandlers = /* @__PURE__ */ new Set();
-    typingHandlers = /* @__PURE__ */ new Set();
-    historyHandlers = /* @__PURE__ */ new Set();
+    inboundHandlers = sharedHandlerSet("inbound");
+    typingHandlers = sharedHandlerSet("typing");
+    historyHandlers = sharedHandlerSet("history");
     seq = 0;
   }
 });

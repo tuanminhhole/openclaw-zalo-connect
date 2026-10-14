@@ -66,7 +66,24 @@ export type ZaloConnectBridgeInboundOutcome = void | boolean | { handled?: boole
 type InboundHandler = (
   event: ZaloConnectBridgeInboundEvent,
 ) => ZaloConnectBridgeInboundOutcome | Promise<ZaloConnectBridgeInboundOutcome>;
-const inboundHandlers = new Set<InboundHandler>();
+/**
+ * Subscriber sets live on `globalThis`, next to the service itself, not in this module.
+ *
+ * OpenClaw can replace a plugin without restarting the gateway ("Plugin replacement applied"): the
+ * new bundle is a new module instance with new, EMPTY sets, while sibling plugins stay subscribed to
+ * the old ones. zalo-mod's chat log then went silent - the bot kept answering, nothing was stored -
+ * from the moment zalo-connect was reinstalled on a running gateway (vps_asa, 14/10/2026). Sharing
+ * the sets keeps every subscription alive across a reload; subscribers already remove their previous
+ * handler before adding a new one, so nothing is delivered twice.
+ */
+function sharedHandlerSet<T>(kind: "inbound" | "history" | "typing"): Set<T> {
+  const g = globalThis as Record<string, unknown>;
+  const registry = (g.__zaloConnectBridgeHandlers ??= {}) as Record<string, unknown>;
+  if (!(registry[kind] instanceof Set)) registry[kind] = new Set<T>();
+  return registry[kind] as Set<T>;
+}
+
+const inboundHandlers = sharedHandlerSet<InboundHandler>("inbound");
 
 /**
  * Publish an allowed inbound message to sibling plugins before mention gating.
@@ -105,7 +122,7 @@ export type ZaloConnectBridgeTypingEvent = {
 };
 
 type TypingHandler = (event: ZaloConnectBridgeTypingEvent) => void | Promise<void>;
-const typingHandlers = new Set<TypingHandler>();
+const typingHandlers = sharedHandlerSet<TypingHandler>("typing");
 
 export async function publishBridgeTyping(event: ZaloConnectBridgeTypingEvent): Promise<void> {
   if (typingHandlers.size === 0) return;
@@ -125,7 +142,7 @@ export function hasBridgeTypingSubscribers(): boolean {
 type HistoryHandler = (
   events: ZaloConnectBridgeHistoryEvent[],
 ) => void | Promise<void>;
-const historyHandlers = new Set<HistoryHandler>();
+const historyHandlers = sharedHandlerSet<HistoryHandler>("history");
 
 /**
  * Đẩy một LÔ tin cũ sang plugin anh em. Không có giá trị trả về và không ai "claim" được lô này:
