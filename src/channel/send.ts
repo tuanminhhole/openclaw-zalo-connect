@@ -1,7 +1,7 @@
 import { ThreadType, TextStyle, type Style, type MessageContent, type Mention, type SendMessageQuote } from "zca-js";
 import { getApi } from "../client/zalo-client.js";
 import { resolveOutboundMentions } from "../parsing/mention-parser.js";
-import { redactOutput } from "../safety/output-filter.js";
+import { redactOutput, stripProviderErrorText } from "../safety/output-filter.js";
 import { trackOutboundMessage } from "../features/auto-unsend.js";
 import * as fs from "fs";
 import * as path from "path";
@@ -61,6 +61,18 @@ function countStripsBefore(sorted: number[], value: number): number {
   return lo;
 }
 
+/**
+ * zca-js sendMessage answers `{ message, attachment[] }`, and `message` is null when only an
+ * attachment went out (an image without caption). Reading only `message.msgId` returned no id for
+ * every captionless image, so OpenClaw's `message` tool reported `adapter_returned_no_identity`
+ * although the image had reached the group - the bot then believed the send failed and stopped
+ * its campaign (vps_minh-thu, 12/10/2026). Fall back to the first attachment's ids.
+ */
+export function pickSentMessageIds(result: any): { msgId?: string | number; cliMsgId?: string | number } {
+  const first = result?.message ?? (Array.isArray(result?.attachment) ? result.attachment[0] : undefined);
+  return { msgId: first?.msgId ?? undefined, cliMsgId: first?.cliMsgId ?? undefined };
+}
+
 export type ZaloConnectSendOptions = {
   accountId?: string;
   mediaUrl?: string;
@@ -85,6 +97,16 @@ export async function sendMessageZaloConnect(
   options: ZaloConnectSendOptions = {},
 ): Promise<ZaloConnectSendResult> {
   if (!threadId?.trim()) return { ok: false, error: "No threadId provided" };
+
+  // Never forward a provider error that 9router smuggled into the answer text (see output-filter).
+  const cleaned = stripProviderErrorText(text);
+  if (cleaned.stripped) {
+    console.warn(`[zalo-connect] dropped provider error text from outbound message to ${threadId.trim()}: ${cleaned.stripped.slice(0, 200)}`);
+    text = cleaned.text;
+    if (!text.trim() && !options.localPath && !options.mediaUrl) {
+      return { ok: false, error: `provider error suppressed: ${cleaned.stripped.slice(0, 200)}` };
+    }
+  }
 
   if (options.localPath) {
     return uploadAndSendLocalImage(threadId, options.localPath, {
@@ -139,11 +161,11 @@ export async function sendMessageZaloConnect(
     if (options.quote) content.quote = options.quote;
 
     const result = await api.sendMessage(content, threadId.trim(), type);
-    const msgId = result?.message?.msgId;
+    const { msgId, cliMsgId } = pickSentMessageIds(result);
     // Track our own outbound so the agent can recall ("thu hồi") its last message
     // in this thread without needing to know the raw msgId/cliMsgId.
     if (msgId != null) {
-      trackOutboundMessage(threadId.trim(), String(msgId), (result?.message as any)?.cliMsgId != null ? String((result!.message as any).cliMsgId) : undefined);
+      trackOutboundMessage(threadId.trim(), String(msgId), cliMsgId != null ? String(cliMsgId) : undefined);
     }
     return { ok: true, messageId: msgId != null ? String(msgId) : undefined };
   } catch (err) {
@@ -216,9 +238,9 @@ async function uploadAndSendLocalImage(
     if (options.cleanupAfterUpload === true) {
       try { fs.unlinkSync(localPath); } catch {}
     }
-    const msgId = result?.message?.msgId;
+    const { msgId, cliMsgId } = pickSentMessageIds(result);
     if (msgId != null) {
-      trackOutboundMessage(threadId.trim(), String(msgId), (result?.message as any)?.cliMsgId != null ? String((result!.message as any).cliMsgId) : undefined);
+      trackOutboundMessage(threadId.trim(), String(msgId), cliMsgId != null ? String(cliMsgId) : undefined);
     }
     return { ok: true, messageId: msgId != null ? String(msgId) : undefined };
   } catch (err) {

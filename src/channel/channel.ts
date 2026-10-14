@@ -29,7 +29,17 @@ import { ZaloConnectConfigSchema, ZaloConnectChannelConfigSchema } from "../conf
 import { zaloConnectOnboardingAdapter } from "./onboarding.js";
 import { probeZaloConnect } from "./probe.js";
 import { sendMessageZaloConnect, isLocalFilePath } from "./send.js";
-import { isKnownGroupId } from "../features/group-id-cache.js";
+import { parseOutboundTarget, resolveOutboundIsGroup } from "../features/group-id-cache.js";
+
+/** Ask Zalo whether an id is a group. undefined = could not tell (network, not logged in). */
+async function lookupIsGroup(accountId: string | undefined, id: string): Promise<boolean | undefined> {
+  const { getApi } = await import("../client/zalo-client.js");
+  const api = await getApi(accountId);
+  const info = await api.getGroupInfo([id]);
+  const map = info?.gridInfoMap;
+  if (!map || typeof map !== "object") return undefined;
+  return Object.prototype.hasOwnProperty.call(map, id);
+}
 import { recordToolSentText } from "../features/recent-tool-text.js";
 import { collectZaloConnectStatusIssues } from "../runtime/status-issues.js";
 import { hasStoredCredentials, loginWithQR } from "../client/zalo-client.js";
@@ -501,9 +511,11 @@ export const zaloConnectPlugin: ChannelPlugin<ResolvedZaloConnectAccount> = {
     },
     chunkerMode: "markdown",
     textChunkLimit: 2000,
-    sendText: async ({ to, text, accountId, cfg }) => {
+    sendText: async ({ to: rawTo, text, accountId, cfg }) => {
       const account = resolveZaloConnectAccountSync({ cfg, accountId });
-      const isGroup = isKnownGroupId(to);
+      const target = parseOutboundTarget(rawTo);
+      const to = target.id;
+      const isGroup = await resolveOutboundIsGroup(target, (id) => lookupIsGroup(account.accountId, id));
       // Remember programmatic/self-sends (OpenClaw `message` tool) so the native reply
       // pipeline can skip an identical follow-up (avoids the double: self-send + reply).
       recordToolSentText(to, text);
@@ -515,9 +527,11 @@ export const zaloConnectPlugin: ChannelPlugin<ResolvedZaloConnectAccount> = {
         error: result.error ? new Error(result.error) : undefined,
       };
     },
-    sendMedia: async ({ to, text, mediaUrl, accountId, cfg }) => {
+    sendMedia: async ({ to: rawTo, text, mediaUrl, accountId, cfg }) => {
       const account = resolveZaloConnectAccountSync({ cfg, accountId });
-      const isGroup = isKnownGroupId(to);
+      const target = parseOutboundTarget(rawTo);
+      const to = target.id;
+      const isGroup = await resolveOutboundIsGroup(target, (id) => lookupIsGroup(account.accountId, id));
       let options: any = { isGroup, accountId: account.accountId };
       if (mediaUrl && isLocalFilePath(mediaUrl) && fs.existsSync(mediaUrl)) {
         options.localPath = mediaUrl;
