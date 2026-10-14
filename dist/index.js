@@ -54715,7 +54715,13 @@ function redactOutput(text) {
   }
   return result;
 }
-var REDACTION_RULES;
+function stripProviderErrorText(text) {
+  const value = String(text ?? "");
+  const match = PROVIDER_ERROR_TAIL.exec(value);
+  if (!match) return { text: value, stripped: null };
+  return { text: value.slice(0, match.index).trimEnd(), stripped: match[0].trim() };
+}
+var REDACTION_RULES, PROVIDER_ERROR_TAIL;
 var init_output_filter = __esm({
   "src/safety/output-filter.ts"() {
     "use strict";
@@ -54734,6 +54740,7 @@ var init_output_filter = __esm({
       { pattern: () => /at\s+[^\n]*node_modules[^\n]*/g, replacement: "at [internal]" },
       { pattern: () => /at\s+[^\n]*\/dist\/[^\n]*/g, replacement: "at [internal]" }
     ];
+    PROVIDER_ERROR_TAIL = /\[Error\] [^\n]*\s*$/;
   }
 });
 
@@ -54773,6 +54780,7 @@ var send_exports = {};
 __export(send_exports, {
   isLocalFilePath: () => isLocalFilePath,
   markdownToZaloStyles: () => markdownToZaloStyles,
+  pickSentMessageIds: () => pickSentMessageIds,
   sendLinkZaloConnect: () => sendLinkZaloConnect,
   sendMessageZaloConnect: () => sendMessageZaloConnect
 });
@@ -54821,8 +54829,20 @@ function countStripsBefore(sorted, value) {
   }
   return lo;
 }
+function pickSentMessageIds(result) {
+  const first = result?.message ?? (Array.isArray(result?.attachment) ? result.attachment[0] : void 0);
+  return { msgId: first?.msgId ?? void 0, cliMsgId: first?.cliMsgId ?? void 0 };
+}
 async function sendMessageZaloConnect(threadId, text, options = {}) {
   if (!threadId?.trim()) return { ok: false, error: "No threadId provided" };
+  const cleaned = stripProviderErrorText(text);
+  if (cleaned.stripped) {
+    console.warn(`[zalo-connect] dropped provider error text from outbound message to ${threadId.trim()}: ${cleaned.stripped.slice(0, 200)}`);
+    text = cleaned.text;
+    if (!text.trim() && !options.localPath && !options.mediaUrl) {
+      return { ok: false, error: `provider error suppressed: ${cleaned.stripped.slice(0, 200)}` };
+    }
+  }
   if (options.localPath) {
     return uploadAndSendLocalImage(threadId, options.localPath, {
       ...options,
@@ -54868,9 +54888,9 @@ async function sendMessageZaloConnect(threadId, text, options = {}) {
     if (mentions.length > 0) content.mentions = mentions;
     if (options.quote) content.quote = options.quote;
     const result = await api.sendMessage(content, threadId.trim(), type);
-    const msgId = result?.message?.msgId;
+    const { msgId, cliMsgId } = pickSentMessageIds(result);
     if (msgId != null) {
-      trackOutboundMessage(threadId.trim(), String(msgId), result?.message?.cliMsgId != null ? String(result.message.cliMsgId) : void 0);
+      trackOutboundMessage(threadId.trim(), String(msgId), cliMsgId != null ? String(cliMsgId) : void 0);
     }
     return { ok: true, messageId: msgId != null ? String(msgId) : void 0 };
   } catch (err2) {
@@ -54931,9 +54951,9 @@ async function uploadAndSendLocalImage(threadId, localPath, options = {}) {
       } catch {
       }
     }
-    const msgId = result?.message?.msgId;
+    const { msgId, cliMsgId } = pickSentMessageIds(result);
     if (msgId != null) {
-      trackOutboundMessage(threadId.trim(), String(msgId), result?.message?.cliMsgId != null ? String(result.message.cliMsgId) : void 0);
+      trackOutboundMessage(threadId.trim(), String(msgId), cliMsgId != null ? String(cliMsgId) : void 0);
     }
     return { ok: true, messageId: msgId != null ? String(msgId) : void 0 };
   } catch (err2) {
@@ -54967,11 +54987,35 @@ function recordGroupId(id) {
 function isKnownGroupId(id) {
   return knownGroupIds.has(id?.trim() ?? "");
 }
-var knownGroupIds;
+function parseOutboundTarget(to) {
+  let id = String(to ?? "").trim().replace(/^zalo-connect:/i, "");
+  if (/^group:/i.test(id)) return { id: id.replace(/^group:/i, "").trim(), isGroup: true };
+  if (/^(user|dm|direct):/i.test(id)) return { id: id.replace(/^(user|dm|direct):/i, "").trim(), isGroup: false };
+  return { id };
+}
+async function resolveOutboundIsGroup(target, lookup) {
+  if (typeof target.isGroup === "boolean") {
+    if (target.isGroup) recordGroupId(target.id);
+    return target.isGroup;
+  }
+  if (isKnownGroupId(target.id)) return true;
+  if (knownNonGroupIds.has(target.id)) return false;
+  let isGroup;
+  try {
+    isGroup = await lookup(target.id);
+  } catch {
+    isGroup = void 0;
+  }
+  if (isGroup === true) recordGroupId(target.id);
+  else if (isGroup === false) knownNonGroupIds.add(target.id);
+  return isGroup === true;
+}
+var knownGroupIds, knownNonGroupIds;
 var init_group_id_cache = __esm({
   "src/features/group-id-cache.ts"() {
     "use strict";
     knownGroupIds = /* @__PURE__ */ new Set();
+    knownNonGroupIds = /* @__PURE__ */ new Set();
   }
 });
 
@@ -79465,6 +79509,14 @@ init_zalo_client();
 init_dist();
 import * as fs15 from "fs";
 import * as readline from "readline";
+async function lookupIsGroup(accountId, id) {
+  const { getApi: getApi3 } = await Promise.resolve().then(() => (init_zalo_client(), zalo_client_exports));
+  const api = await getApi3(accountId);
+  const info = await api.getGroupInfo([id]);
+  const map2 = info?.gridInfoMap;
+  if (!map2 || typeof map2 !== "object") return void 0;
+  return Object.prototype.hasOwnProperty.call(map2, id);
+}
 var meta3 = {
   id: "zalo-connect",
   label: "OpenClaw Zalo Connect",
@@ -79896,9 +79948,11 @@ var zaloConnectPlugin = {
     },
     chunkerMode: "markdown",
     textChunkLimit: 2e3,
-    sendText: async ({ to, text, accountId, cfg }) => {
+    sendText: async ({ to: rawTo, text, accountId, cfg }) => {
       const account = resolveZaloConnectAccountSync({ cfg, accountId });
-      const isGroup = isKnownGroupId(to);
+      const target = parseOutboundTarget(rawTo);
+      const to = target.id;
+      const isGroup = await resolveOutboundIsGroup(target, (id) => lookupIsGroup(account.accountId, id));
       recordToolSentText(to, text);
       const result = await sendMessageZaloConnect(to, text, { isGroup, accountId: account.accountId });
       return {
@@ -79908,9 +79962,11 @@ var zaloConnectPlugin = {
         error: result.error ? new Error(result.error) : void 0
       };
     },
-    sendMedia: async ({ to, text, mediaUrl, accountId, cfg }) => {
+    sendMedia: async ({ to: rawTo, text, mediaUrl, accountId, cfg }) => {
       const account = resolveZaloConnectAccountSync({ cfg, accountId });
-      const isGroup = isKnownGroupId(to);
+      const target = parseOutboundTarget(rawTo);
+      const to = target.id;
+      const isGroup = await resolveOutboundIsGroup(target, (id) => lookupIsGroup(account.accountId, id));
       let options = { isGroup, accountId: account.accountId };
       if (mediaUrl && isLocalFilePath(mediaUrl) && fs15.existsSync(mediaUrl)) {
         options.localPath = mediaUrl;

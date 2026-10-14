@@ -38,3 +38,21 @@ export function redactOutput(text: string): string {
 export function hasInternalInfo(text: string): boolean {
   return REDACTION_RULES.some(({ pattern }) => pattern().test(text));
 }
+
+/**
+ * 9router turns an upstream `error` / `response.failed` event that arrives mid-stream into plain
+ * answer text - `[Error] <message>` appended to whatever was already streamed - and closes the
+ * turn with finish_reason "stop". OpenClaw then sees a normal answer, does not retry, and the
+ * provider's error string lands in the customer's chat (vps_minh-thu, 12/10/2026:
+ * "...Em đã đánh[Error] Our servers are currently overloaded. Please try again later.").
+ * 9router always APPENDS it as the last chunk, so only a trailing `[Error] ...` is removed; the
+ * same words in the middle of a message (a bot quoting a log) are left alone.
+ */
+const PROVIDER_ERROR_TAIL = /\[Error\] [^\n]*\s*$/;
+
+export function stripProviderErrorText(text: string): { text: string; stripped: string | null } {
+  const value = String(text ?? "");
+  const match = PROVIDER_ERROR_TAIL.exec(value);
+  if (!match) return { text: value, stripped: null };
+  return { text: value.slice(0, match.index).trimEnd(), stripped: match[0].trim() };
+}

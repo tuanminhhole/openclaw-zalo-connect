@@ -4,6 +4,23 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 Định dạng dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.1.6] - 2026-10-14
+
+### 🚑 Ảnh gửi vào nhóm không còn đi lạc, bot không còn tưởng gửi hỏng
+
+Ghi nhận trên máy của khách ngày 12/10/2026, khi bot gửi banner thông báo vào nhóm.
+
+- **Ảnh vào đúng nhóm, kể cả ngay sau khi khởi động lại.** Trước đây plugin chỉ nhận ra một mã là
+  nhóm sau khi nhóm đó có tin nhắn gửi đến. Nếu bot gửi ảnh vào nhóm trước lúc đó, ảnh bị gửi như
+  tin riêng và nằm trong một hội thoại khác trùng tên, trong khi chữ và link vẫn vào đúng nhóm. Nay
+  plugin hiểu cách ghi `group:<mã>` và hỏi thẳng Zalo khi chưa chắc.
+- **Gửi ảnh không kèm chữ báo đúng là đã gửi.** Ảnh đã lên nhóm nhưng công cụ vẫn báo
+  `adapter_returned_no_identity`, nên bot tưởng gửi hỏng và dừng cả đợt truyền thông. Nay plugin đọc
+  đúng mã tin nhắn Zalo trả về cho ảnh.
+- **Không còn gửi thông báo lỗi của máy chủ AI cho khách.** Khi máy chủ AI quá tải giữa chừng, một
+  số cổng trung gian nối dòng chữ "[Error] Our servers are currently overloaded..." vào cuối câu trả
+  lời. Phần chữ lỗi đó giờ được cắt bỏ trước khi gửi và ghi vào log.
+
 ## [3.1.5] - 2026-09-07
 
 ### 🚑 Khung chat gọi đúng tên người và tên nhóm, phiên Zalo không còn đè nhau
