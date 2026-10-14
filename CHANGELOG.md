@@ -4,6 +4,17 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 Định dạng dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.1.7] - 2026-10-14
+
+### 🚑 Cài lại plugin khi bot đang chạy không còn làm khung chat zalo-mod ngừng ghi tin
+
+Ghi nhận trên máy của khách ngày 14/10/2026: sau khi cập nhật plugin Zalo lúc bot vẫn chạy, bot trả lời
+bình thường nhưng khung chat của zalo-mod không ghi thêm tin nào, kể cả câu trả lời của bot.
+
+- OpenClaw có thể thay plugin mà không khởi động lại bot. Bản mới của plugin dựng danh sách người nghe
+  mới, trống trơn, trong khi các plugin khác (như zalo-mod) vẫn nghe ở danh sách cũ. Nay danh sách này
+  được giữ chung giữa các lần nạp, nên thay plugin xong vẫn nhận tin như cũ.
+
 ## [3.1.6] - 2026-10-14
 
 ### 🚑 Ảnh gửi vào nhóm không còn đi lạc, bot không còn tưởng gửi hỏng
