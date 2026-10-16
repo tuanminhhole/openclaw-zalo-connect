@@ -41289,9 +41289,9 @@ async function getApi(accountId) {
   if (!hasCredentials(id)) {
     throw new Error(`Not authenticated for account "${id}". Login with QR first.`);
   }
-  const pending = loginPromises.get(id);
-  if (pending) {
-    return pending;
+  const pending2 = loginPromises.get(id);
+  if (pending2) {
+    return pending2;
   }
   const promise2 = loginWithCredentials(id).finally(() => {
     loginPromises.delete(id);
@@ -54800,7 +54800,7 @@ function markdownToZaloStyles(input) {
   for (const { regex, style } of inlinePatterns) {
     let result = "";
     let lastIndex = 0;
-    const pending = [];
+    const pending2 = [];
     regex.lastIndex = 0;
     let match;
     while ((match = regex.exec(text)) !== null) {
@@ -54808,13 +54808,13 @@ function markdownToZaloStyles(input) {
       const start = result.length;
       const content = match[1];
       result += content;
-      pending.push({ start, len: content.length, st: style });
+      pending2.push({ start, len: content.length, st: style });
       lastIndex = match.index + match[0].length;
     }
-    if (pending.length > 0) {
+    if (pending2.length > 0) {
       result += text.slice(lastIndex);
       text = result;
-      styles.push(...pending);
+      styles.push(...pending2);
     }
   }
   return { text, styles };
@@ -55048,6 +55048,89 @@ var init_recent_tool_text = __esm({
     recent = /* @__PURE__ */ new Map();
     TTL_MS = 9e4;
     MAX_PER_THREAD = 8;
+  }
+});
+
+// src/channel/pending-question.ts
+function keyOf(accountId, threadId) {
+  return `${accountId || "default"}:${threadId}`;
+}
+function readAskUser(payload) {
+  const askUser = payload?.channelData?.askUser;
+  if (!askUser || typeof askUser !== "object" || Array.isArray(askUser)) return void 0;
+  return askUser;
+}
+function readAskUserQuestionIdFromPayload(payload) {
+  const id = readAskUser(payload)?.questionId;
+  return typeof id === "string" && id ? id : void 0;
+}
+function readAskUserOptionValuesFromPayload(payload) {
+  const values = readAskUser(payload)?.optionValues;
+  return Array.isArray(values) ? values.filter((v) => typeof v === "string" && v.trim().length > 0) : [];
+}
+function markPendingQuestion(accountId, threadId, questionId, optionValues = [], now = Date.now()) {
+  pending.set(keyOf(accountId, threadId), { questionId, optionValues, expiresAt: now + PENDING_QUESTION_TTL_MS });
+}
+function peekPendingQuestion(accountId, threadId, now = Date.now()) {
+  const key2 = keyOf(accountId, threadId);
+  const entry = pending.get(key2);
+  if (!entry) return void 0;
+  if (entry.expiresAt <= now) {
+    pending.delete(key2);
+    return void 0;
+  }
+  return entry;
+}
+function clearPendingQuestion(accountId, threadId) {
+  pending.delete(keyOf(accountId, threadId));
+}
+function matchQuestionAnswer(text, optionValues) {
+  const t = String(text ?? "").trim();
+  if (!t) return null;
+  const num = /^(?:số\s*)?(\d{1,2})[.)]?$/i.exec(t);
+  if (num) {
+    const n = Number(num[1]);
+    if (n < 1) return null;
+    if (optionValues.length && n > optionValues.length) return null;
+    return { optionIndex: n - 1 };
+  }
+  const lower = t.toLowerCase();
+  const hit = optionValues.find((v) => v.trim().toLowerCase() === lower);
+  return hit ? { optionValue: hit } : null;
+}
+async function routeInboundMessage(params) {
+  const question = peekPendingQuestion(params.accountId, params.threadId);
+  if (!question) {
+    params.enqueue(params.threadId, params.data);
+    return "queued";
+  }
+  const match = params.resolveQuestion ? matchQuestionAnswer(params.text ?? "", question.optionValues) : null;
+  if (match && params.resolveQuestion) {
+    try {
+      const res = await params.resolveQuestion(question.questionId, match);
+      if (res?.status === "answered") {
+        clearPendingQuestion(params.accountId, params.threadId);
+        try {
+          await params.onAnswered?.(params.data);
+        } catch (err2) {
+          params.onError?.(err2);
+        }
+        return "answered";
+      }
+    } catch (err2) {
+      params.onError?.(err2);
+    }
+  }
+  clearPendingQuestion(params.accountId, params.threadId);
+  params.runNow(params.data).catch((err2) => params.onError?.(err2));
+  return "now";
+}
+var PENDING_QUESTION_TTL_MS, pending;
+var init_pending_question = __esm({
+  "src/channel/pending-question.ts"() {
+    "use strict";
+    PENDING_QUESTION_TTL_MS = 60 * 60 * 1e3;
+    pending = /* @__PURE__ */ new Map();
   }
 });
 
@@ -60975,8 +61058,8 @@ async function dispatch(p) {
       return ok({ success: true, userId: uid });
     }
     case "get-friend-requests": {
-      const pending = getPendingRequests();
-      return ok({ requests: pending, count: pending.length });
+      const pending2 = getPendingRequests();
+      return ok({ requests: pending2, count: pending2.length });
     }
     case "accept-friend-request": {
       if (!p.userId) throw new Error("userId required");
@@ -62505,6 +62588,7 @@ var init_bridge = __esm({
 var monitor_exports = {};
 __export(monitor_exports, {
   _buildAttachmentPathNote: () => buildAttachmentPathNote,
+  _buildBridgeAttachments: () => buildBridgeAttachments,
   _convertToZaloConnectMessage: () => convertToZaloConnectMessage,
   _filterAttachableMediaPaths: () => filterAttachableMediaPaths,
   _isDuplicateMsg: () => isDuplicateMsg,
@@ -62526,6 +62610,38 @@ function resolveMentionGatingWithBypass(params) {
   if (params.wasMentioned) return { shouldSkip: false };
   if (params.allowTextCommands && params.hasControlCommand && params.commandAuthorized) return { shouldSkip: false };
   return { shouldSkip: true };
+}
+function buildBridgeAttachments(urls, types2) {
+  if (!urls || urls.length === 0) return void 0;
+  return urls.map((url2, i) => {
+    const mime = types2?.[i];
+    return { kind: mime?.startsWith("image/") ? "image" : "file", url: url2, ...mime ? { mime } : {} };
+  });
+}
+async function resolveAskUserAnswer(cfg, questionId, match, senderId) {
+  let mod;
+  try {
+    const spec = "openclaw/plugin-sdk/question-gateway-runtime";
+    mod = await import(spec);
+  } catch {
+    return null;
+  }
+  const resolve5 = mod?.questionGatewayRuntime?.resolveOption ?? mod?.resolveQuestionOverGateway;
+  if (typeof resolve5 !== "function") return null;
+  return await resolve5({ cfg, questionId, senderId, ...match });
+}
+async function publishAnsweredQuestionToBridge(accountId, message) {
+  const senderId = message.metadata?.fromId ?? message.threadId;
+  await publishBridgeInbound({
+    accountId,
+    conversationId: message.threadId,
+    isGroup: false,
+    messageId: String(message.msgId ?? message.cliMsgId ?? `${senderId}:${message.timestamp}`),
+    senderId,
+    senderName: message.metadata?.senderName || senderId,
+    text: typeof message.content === "string" ? message.content : "",
+    timestamp: normalizeZaloTs(message.timestamp)
+  });
 }
 function bufferGroupMessage(groupId, entry) {
   let buffer = groupMessageBuffer.get(groupId) ?? [];
@@ -62876,6 +62992,13 @@ function extractMediaFromObject(obj, mediaUrls, mediaTypes) {
     const extMime = knownFileExt ? mimeFromExt(ext) : void 0;
     const mime = extMime ?? mimeType ?? (IMAGE_URL_RE.test(href) ? "image/jpeg" : "application/octet-stream");
     pushMediaUrl(mediaUrls, mediaTypes, href, mime);
+  } else if (href && mediaUrls.length === 0 && /^https?:\/\//i.test(href.trim())) {
+    const parts = [];
+    for (const part of [title, description, href]) {
+      const text = part.trim();
+      if (text && !parts.some((p) => p.includes(text))) parts.push(text);
+    }
+    return parts.join("\n");
   }
   return title || description || (mediaUrls.length > 0 ? "[Media attachment]" : "");
 }
@@ -63039,6 +63162,7 @@ ${nonImage.join("\n")}
 async function processMessage(message, account, config2, core, runtime2, statusSink) {
   const { threadId, content, timestamp, metadata } = message;
   if (!content?.trim()) return;
+  const ownAttachments = buildBridgeAttachments(message.mediaUrls, message.mediaTypes);
   if (message.msgId && message.cliMsgId) {
     recordMsgId(message.msgId, message.cliMsgId, threadId, metadata?.isGroup ?? false);
   }
@@ -63187,7 +63311,8 @@ ${effectiveContent}`;
         messageId: message.quote.msgId,
         senderId: message.quote.fromId,
         text: message.quote.msg
-      } : void 0
+      } : void 0,
+      ...ownAttachments ? { attachments: ownAttachments } : {}
     });
     if (bridgeHandled) {
       logVerbose(core, runtime2, `Handled group ${chatId} by sibling bridge before mention/agent dispatch`);
@@ -63477,6 +63602,8 @@ ${bodyWithSender}`;
       dispatcherOptions: {
         ...prefixOptions,
         deliver: async (payload) => {
+          const askUserQuestionId = readAskUserQuestionIdFromPayload(payload);
+          if (askUserQuestionId && !isGroup) markPendingQuestion(account.accountId, chatId, askUserQuestionId, readAskUserOptionValuesFromPayload(payload));
           const sentVisible = await deliverZaloConnectReply({
             payload,
             chatId,
@@ -63940,7 +64067,13 @@ async function monitorZaloConnectProvider(options) {
         // finished correctly (dashboard session log showed it; the chat never got it).
         processingTimeoutMs: 10 * 60 * 1e3,
         // 10 minutes
-        handler: (message) => processMessage(message, account, config2, core, runtime2, statusSink),
+        handler: async (message) => {
+          try {
+            await processMessage(message, account, config2, core, runtime2, statusSink);
+          } finally {
+            clearPendingQuestion(account.accountId, message.threadId);
+          }
+        },
         onDrop: (threadId, dropped) => {
           logVerbose(core, runtime2, `[${account.accountId}] queue overflow: dropped oldest message in thread ${threadId} (msgId=${dropped.data.msgId ?? "?"})`);
         },
@@ -63954,6 +64087,21 @@ async function monitorZaloConnectProvider(options) {
           logVerbose(core, runtime2, `[${account.accountId}] skipped stale message in thread ${threadId} (age=${Math.round((Date.now() - entry.enqueuedAt) / 1e3)}s)`);
         }
       });
+      const routeInbound = (converted) => {
+        void routeInboundMessage({
+          accountId: account.accountId,
+          threadId: converted.threadId,
+          data: converted,
+          text: typeof converted.content === "string" ? converted.content : "",
+          enqueue: (threadId, data) => messageQueue.enqueue(threadId, data),
+          runNow: (data) => processMessage(data, account, config2, core, runtime2, statusSink),
+          resolveQuestion: (questionId, match) => resolveAskUserAnswer(config2, questionId, match, converted.metadata?.fromId ?? converted.threadId),
+          onAnswered: (data) => publishAnsweredQuestionToBridge(account.accountId, data),
+          onError: (err2) => runtime2.error(`[${account.accountId}] ask_user answer in thread ${converted.threadId}: ${String(err2)}`)
+        }).then((route) => {
+          if (route !== "queued") logVerbose(core, runtime2, `[${account.accountId}] thread ${converted.threadId}: pending ask_user question, route=${route}`);
+        });
+      };
       api.listener.on("message", (msg) => {
         lastListenerEventAt = Date.now();
         reconnectAttempts = 0;
@@ -64022,13 +64170,13 @@ async function monitorZaloConnectProvider(options) {
             message: _injContent,
             log: (msg2) => runtime2.log?.(`[${account.accountId}] ${msg2}`)
           }).then((blocked) => {
-            if (!blocked) messageQueue.enqueue(converted.threadId, converted);
+            if (!blocked) routeInbound(converted);
           }).catch(() => {
-            messageQueue.enqueue(converted.threadId, converted);
+            routeInbound(converted);
           });
           return;
         }
-        messageQueue.enqueue(converted.threadId, converted);
+        routeInbound(converted);
       });
       api.listener.on("old_messages", (msgs, threadType) => {
         lastListenerEventAt = Date.now();
@@ -64271,6 +64419,7 @@ var init_monitor = __esm({
     init_group_id_cache();
     init_credentials();
     init_thread_queue();
+    init_pending_question();
     init_group_policy();
     init_history_session();
     init_bridge();
@@ -79513,6 +79662,7 @@ function collectZaloConnectStatusIssues() {
 // src/channel/channel.ts
 init_zalo_client();
 init_dist();
+init_pending_question();
 import * as fs15 from "fs";
 import * as readline from "readline";
 async function lookupIsGroup(accountId, id) {
@@ -79522,6 +79672,16 @@ async function lookupIsGroup(accountId, id) {
   const map2 = info?.gridInfoMap;
   if (!map2 || typeof map2 !== "object") return void 0;
   return Object.prototype.hasOwnProperty.call(map2, id);
+}
+async function presentationFallbackText(payload) {
+  if (!payload?.presentation) return "";
+  try {
+    const mod = await import("openclaw/plugin-sdk/interactive-runtime");
+    const render = mod?.renderMessagePresentationFallbackText;
+    return typeof render === "function" ? String(render({ text: payload.text, presentation: payload.presentation }) ?? "") : "";
+  } catch {
+    return "";
+  }
 }
 var meta3 = {
   id: "zalo-connect",
@@ -79961,6 +80121,35 @@ var zaloConnectPlugin = {
       const isGroup = await resolveOutboundIsGroup(target, (id) => lookupIsGroup(account.accountId, id));
       recordToolSentText(to, text);
       const result = await sendMessageZaloConnect(to, text, { isGroup, accountId: account.accountId });
+      return {
+        channel: "zalo-connect",
+        ok: result.ok,
+        messageId: result.messageId ?? "",
+        error: result.error ? new Error(result.error) : void 0
+      };
+    },
+    // Payload có channelData/presentation (vd câu hỏi ask_user) đi qua đây thay vì sendText. Gửi như
+    // sendText/sendMedia, và đánh dấu câu hỏi để câu trả lời kế tiếp không phải xếp hàng sau chính lượt
+    // đang chờ nó (pending-question.ts). Thiếu hàm này thì channelData.askUser rơi mất ở sendText.
+    sendPayload: async ({ to: rawTo, text, mediaUrl, payload, accountId, cfg }) => {
+      const account = resolveZaloConnectAccountSync({ cfg, accountId });
+      const target = parseOutboundTarget(rawTo);
+      const to = target.id;
+      const isGroup = await resolveOutboundIsGroup(target, (id) => lookupIsGroup(account.accountId, id));
+      const body = text || payload?.text || await presentationFallbackText(payload);
+      const questionId = readAskUserQuestionIdFromPayload(payload);
+      if (questionId && !isGroup) markPendingQuestion(account.accountId, to, questionId, readAskUserOptionValuesFromPayload(payload));
+      const options = { isGroup, accountId: account.accountId };
+      const media = mediaUrl || payload?.mediaUrl;
+      if (media && isLocalFilePath(media) && fs15.existsSync(media)) {
+        options.localPath = media;
+        options.caption = body;
+      } else if (media) {
+        options.mediaUrl = media;
+        options.caption = body;
+      }
+      recordToolSentText(to, body);
+      const result = await sendMessageZaloConnect(to, body, options);
       return {
         channel: "zalo-connect",
         ok: result.ok,

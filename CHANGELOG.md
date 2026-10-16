@@ -4,6 +4,40 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 Định dạng dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.1.8] - 2026-10-16
+
+### 🚑 Bot đọc được đường link trong thẻ chia sẻ
+
+Ghi nhận trên máy của khách ngày 16/10/2026: chủ bot bấm chia sẻ link mời vào cộng đồng Zalo, bot chỉ
+nhận được dòng "Truy cập link để tham gia cộng đồng" và phải xin chủ dán lại đường link bằng chữ.
+
+- Thẻ chia sẻ link (không phải tệp, không phải ảnh) nay đưa cho bot cả tiêu đề, mô tả và đường link.
+  Phần nào đã có sẵn trong phần trước thì không lặp lại.
+- Link vẫn không bị coi là tệp đính kèm, nên bot không tải trang web về như tải ảnh.
+
+### 🚑 Khung chat zalo-mod hiện lại ảnh khách gửi trực tiếp
+
+Ghi nhận cùng ngày: chủ bot gửi ảnh vào DM, bot vẫn xem được ảnh, nhưng khung chat zalo-mod chỉ lưu
+phần chữ. Trên máy đó, 66 tin khách gửi trong ngày không tin nào còn ảnh.
+
+- Sự kiện tin đến mà plugin chuyển cho các plugin khác (như zalo-mod) nay có thêm `attachments`: đường
+  link Zalo gốc, loại (`image` hoặc `file`) và mime của từng ảnh, tệp.
+- Chỉ gồm ảnh, tệp của chính tin đó. Ảnh của tin được trả lời (quote) không bị gắn nhầm vào tin mới.
+
+### 🚑 Trả lời câu hỏi của bot ngay trên Zalo
+
+Ghi nhận cùng ngày: bot hỏi chủ "chị chọn kiểu ảnh nào" kèm danh sách lựa chọn, chủ nhắn "1" trên Zalo
+nhưng bot đứng im tới khi câu hỏi hết hạn, rồi mới coi "1" là một tin mới và nhắn thêm một câu thừa.
+
+- Plugin nay nhận nguyên gói tin OpenClaw gửi xuống, gồm cả câu hỏi và các lựa chọn. Trước đây dữ liệu
+  này bị cắt mất ngay lúc gửi nên plugin không biết bot vừa hỏi.
+- Trong tin nhắn riêng, khi bot đang chờ câu trả lời, tin nhắn là số thứ tự ("3", "số 3") hoặc đúng tên
+  một lựa chọn sẽ được chuyển thẳng thành câu trả lời, giống cách WhatsApp và Signal làm với nút chọn.
+  Bot làm tiếp ngay, không nhắn thêm câu thừa. Tin vẫn hiện trong khung chat của zalo-mod.
+- Tin không khớp lựa chọn nào thì được xử lý ngay, không phải chờ sau lượt đang hỏi.
+- Trong nhóm, tin kế tiếp có thể của người khác nên vẫn xếp hàng như cũ.
+- Cần OpenClaw 2026.9 trở lên. Bản cũ hơn thì tin trả lời đi theo đường thường như trước.
+
 ## [3.1.7] - 2026-10-14
 
 ### 🚑 Cài lại plugin khi bot đang chạy không còn làm khung chat zalo-mod ngừng ghi tin

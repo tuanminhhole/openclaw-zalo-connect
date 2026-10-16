@@ -95,7 +95,41 @@ describe("Zalo media ingestion guard", () => {
     })));
 
     expect(converted?.mediaUrls).toBeUndefined();
-    expect(converted?.content).toBe("Example link");
+    // Không coi href là media, nhưng vẫn phải đưa URL vào text để bot đọc được link.
+    expect(converted?.content).toBe("Example link\nhttps://example.com/some-page");
+  });
+
+  it("keeps the URL of a shared community-invite link card in the text", () => {
+    // Hình dạng thẻ Zalo khi khách bấm chia sẻ link mời cộng đồng: bot từng chỉ thấy title.
+    const converted = convertToZaloConnectMessage(fakeUserMessage({
+      title: "Truy cập link để tham gia cộng đồng",
+      description: "",
+      href: "https://zalo.me/g/5x7e2ahy36eonbotvxk2",
+      thumb: "https://s120-ava-grp-talk.zadn.vn/a/b/c.jpg",
+      action: "recommened.link",
+    }));
+
+    expect(converted?.mediaUrls).toBeUndefined();
+    expect(converted?.content).toBe("Truy cập link để tham gia cộng đồng\nhttps://zalo.me/g/5x7e2ahy36eonbotvxk2");
+  });
+
+  it("joins title, description and URL of a link card without repeating text", () => {
+    const converted = convertToZaloConnectMessage(fakeUserMessage(JSON.stringify({
+      title: "Zoom tối nay",
+      description: "Phòng họp lúc 19:45 https://us06web.zoom.us/j/123?pwd=abc",
+      href: "https://us06web.zoom.us/j/123?pwd=abc",
+    })));
+
+    expect(converted?.content).toBe("Zoom tối nay\nPhòng họp lúc 19:45 https://us06web.zoom.us/j/123?pwd=abc");
+  });
+
+  it("does not append non-http hrefs to the text", () => {
+    const converted = convertToZaloConnectMessage(fakeUserMessage({
+      title: "Mở trong ứng dụng",
+      href: "zalo://chat?id=123",
+    }));
+
+    expect(converted?.content).toBe("Mở trong ứng dụng");
   });
 
   it("extracts a Zalo file attachment (PDF) into mediaUrls", () => {
