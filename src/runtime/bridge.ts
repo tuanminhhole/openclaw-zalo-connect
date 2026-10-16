@@ -35,6 +35,18 @@ export type ZaloConnectBridgeInboundEvent = {
   timestamp: number;
   mentions?: Array<{ uid: string; displayName?: string }>;
   quote?: { messageId?: string; senderId?: string; text?: string };
+  /**
+   * Ảnh/tệp của chính tin này (link Zalo gốc, chưa tải về). Trước đây sự kiện không có trường này
+   * nên zalo-mod lưu tin trực tiếp thành chữ trơn, mất ảnh trong khung chat (vps_thuy-le 16/10/2026).
+   * Không gồm media của tin được trả lời (quote).
+   */
+  attachments?: ZaloConnectBridgeAttachment[];
+};
+
+export type ZaloConnectBridgeAttachment = {
+  kind: "image" | "file";
+  url: string;
+  mime?: string;
 };
 
 /**

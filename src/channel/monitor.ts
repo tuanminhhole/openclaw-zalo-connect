@@ -41,6 +41,7 @@ import { wasRecentlyToolSent } from "../features/recent-tool-text.js";
 import { recordGroupId } from "../features/group-id-cache.js";
 import { refreshCredentials } from "../client/credentials.js";
 import { ThreadMessageQueue, type ThreadQueueEntry } from "./thread-queue.js";
+import { clearPendingQuestion, markPendingQuestion, readAskUserQuestionIdFromPayload, routeInboundMessage } from "./pending-question.js";
 import { getRuntimeGroupPolicy } from "../runtime/group-policy.js";
 import { resetHistorySession } from "../features/history-session.js";
 import {
@@ -49,8 +50,24 @@ import {
   publishBridgeTyping,
   hasBridgeHistorySubscribers,
   hasBridgeTypingSubscribers,
+  type ZaloConnectBridgeAttachment,
   type ZaloConnectBridgeHistoryEvent,
 } from "../runtime/bridge.js";
+
+/** Media của một tin (link Zalo gốc) đổi sang dạng `attachments` của sự kiện bridge inbound. */
+function buildBridgeAttachments(
+  urls: string[] | undefined,
+  types: string[] | undefined,
+): ZaloConnectBridgeAttachment[] | undefined {
+  if (!urls || urls.length === 0) return undefined;
+  return urls.map((url, i) => {
+    const mime = types?.[i];
+    return { kind: mime?.startsWith("image/") ? "image" : "file", url, ...(mime ? { mime } : {}) };
+  });
+}
+
+/** Exported for testing only. */
+export { buildBridgeAttachments as _buildBridgeAttachments };
 
 export type ZaloConnectMonitorOptions = {
   account: ResolvedZaloConnectAccount;
@@ -584,6 +601,16 @@ function extractMediaFromObject(obj: any, mediaUrls: string[], mediaTypes: strin
     const extMime = knownFileExt ? mimeFromExt(ext) : undefined;
     const mime = extMime ?? mimeType ?? (IMAGE_URL_RE.test(href) ? "image/jpeg" : "application/octet-stream");
     pushMediaUrl(mediaUrls, mediaTypes, href, mime);
+  } else if (href && mediaUrls.length === 0 && /^https?:\/\//i.test(href.trim())) {
+    // Thẻ chia sẻ link (vd mời vào cộng đồng Zalo): trước đây chỉ trả `title` nên bot thấy mỗi
+    // "Truy cập link để tham gia cộng đồng" mà mất URL (đo trên vps_thuy-le 16/10/2026).
+    // Nối title + description + href, bỏ phần đã nằm sẵn trong phần trước để không lặp chữ.
+    const parts: string[] = [];
+    for (const part of [title, description, href]) {
+      const text = part.trim();
+      if (text && !parts.some((p) => p.includes(text))) parts.push(text);
+    }
+    return parts.join("\n");
   }
 
   return title || description || (mediaUrls.length > 0 ? "[Media attachment]" : "");
@@ -816,6 +843,9 @@ async function processMessage(
 ): Promise<void> {
   const { threadId, content, timestamp, metadata } = message;
   if (!content?.trim()) return;
+  // Chụp media của CHÍNH tin này trước khi khối quote bên dưới trộn media của tin được trả lời
+  // vào message.mediaUrls, để zalo-mod không gắn nhầm ảnh cũ vào tin mới.
+  const ownAttachments = buildBridgeAttachments(message.mediaUrls, message.mediaTypes);
 
   // Record msgId→cliMsgId mapping for reaction/undo lookups
   if (message.msgId && message.cliMsgId) {
@@ -1004,6 +1034,7 @@ async function processMessage(
         senderId: message.quote.fromId,
         text: message.quote.msg,
       } : undefined,
+      ...(ownAttachments ? { attachments: ownAttachments } : {}),
     });
     if (bridgeHandled) {
       logVerbose(core, runtime, `Handled group ${chatId} by sibling bridge before mention/agent dispatch`);
@@ -1369,6 +1400,11 @@ async function processMessage(
       dispatcherOptions: {
         ...prefixOptions,
         deliver: async (payload) => {
+          // Câu hỏi ask_user: đánh dấu để câu trả lời kế tiếp của hội thoại không phải xếp hàng sau
+          // chính lượt đang chờ nó (xem pending-question.ts). Chỉ áp cho tin riêng: trong nhóm, tin
+          // kế tiếp có thể của người khác, để nó đi đường hàng đợi như cũ.
+          const askUserQuestionId = readAskUserQuestionIdFromPayload(payload);
+          if (askUserQuestionId && !isGroup) markPendingQuestion(account.accountId, chatId, askUserQuestionId);
           const sentVisible = await deliverZaloConnectReply({
             payload: payload as { text?: string; mediaUrls?: string[]; mediaUrl?: string; isReasoning?: boolean; isReasoningSnapshot?: boolean; isStatusNotice?: boolean; toolProgress?: boolean },
             chatId,
@@ -1914,8 +1950,14 @@ export async function monitorZaloConnectProvider(
         // background — the real reply never got delivered to Zalo even though the agent
         // finished correctly (dashboard session log showed it; the chat never got it).
         processingTimeoutMs: 10 * 60 * 1000, // 10 minutes
-        handler: (message) =>
-          processMessage(message, account, config, core, runtime, statusSink),
+        handler: async (message) => {
+          try {
+            await processMessage(message, account, config, core, runtime, statusSink);
+          } finally {
+            // Lượt kết thúc thì câu hỏi của nó cũng đã xong (trả lời, hết hạn hoặc huỷ).
+            clearPendingQuestion(account.accountId, message.threadId);
+          }
+        },
         onDrop: (threadId, dropped) => {
           logVerbose(core, runtime, `[${account.accountId}] queue overflow: dropped oldest message in thread ${threadId} (msgId=${dropped.data.msgId ?? "?"})`);
         },
@@ -1929,6 +1971,19 @@ export async function monitorZaloConnectProvider(
           logVerbose(core, runtime, `[${account.accountId}] skipped stale message in thread ${threadId} (age=${Math.round((Date.now() - entry.enqueuedAt) / 1000)}s)`);
         },
       });
+
+      // Hội thoại đang có câu hỏi ask_user chờ trả lời thì tin kế tiếp chạy ngay, không xếp hàng.
+      const routeInbound = (converted: ZaloConnectMessage) => {
+        const route = routeInboundMessage({
+          accountId: account.accountId,
+          threadId: converted.threadId,
+          data: converted,
+          enqueue: (threadId, data) => messageQueue.enqueue(threadId, data),
+          runNow: (data) => processMessage(data, account, config, core, runtime, statusSink),
+          onError: (err) => runtime.error(`[${account.accountId}] Failed to process question answer in thread ${converted.threadId}: ${String(err)}`),
+        });
+        if (route === "now") logVerbose(core, runtime, `[${account.accountId}] thread ${converted.threadId}: pending ask_user question, dispatching reply without queueing`);
+      };
 
       api.listener.on("message", (msg: Message) => {
         lastListenerEventAt = Date.now(); // socket is alive (any inbound, incl. self-echo)
@@ -2018,14 +2073,14 @@ export async function monitorZaloConnectProvider(
             message: _injContent,
             log: (msg) => runtime.log?.(`[${account.accountId}] ${msg}`),
           }).then((blocked) => {
-            if (!blocked) messageQueue.enqueue(converted.threadId, converted);
+            if (!blocked) routeInbound(converted);
           }).catch(() => {
-            messageQueue.enqueue(converted.threadId, converted); // fail-safe
+            routeInbound(converted); // fail-safe
           });
           return; // Always return here; enqueue happens inside .then()
         }
 
-        messageQueue.enqueue(converted.threadId, converted);
+        routeInbound(converted);
       });
 
       /**
