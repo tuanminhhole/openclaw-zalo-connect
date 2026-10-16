@@ -27,12 +27,16 @@ phần chữ. Trên máy đó, 66 tin khách gửi trong ngày không tin nào c
 ### 🚑 Trả lời câu hỏi của bot ngay trên Zalo
 
 Ghi nhận cùng ngày: bot hỏi chủ "chị chọn kiểu ảnh nào" kèm danh sách lựa chọn, chủ nhắn "1" trên Zalo
-nhưng bot đứng im, phải có người bấm chọn trong giao diện quản trị OpenClaw thì bot mới làm tiếp.
+nhưng bot đứng im tới khi câu hỏi hết hạn, rồi mới coi "1" là một tin mới và nhắn thêm một câu thừa.
 
-- Plugin xử lý tin trong mỗi cuộc trò chuyện lần lượt từng tin một, nên câu trả lời phải chờ chính lượt
-  đang đợi nó. Nay khi bot vừa gửi một câu hỏi vào tin nhắn riêng, tin kế tiếp trong cuộc trò chuyện đó
-  được chuyển thẳng cho OpenClaw để nhận làm câu trả lời.
-- Chỉ áp cho tin nhắn riêng. Trong nhóm, tin kế tiếp có thể của người khác nên vẫn xếp hàng như cũ.
+- Plugin nay nhận nguyên gói tin OpenClaw gửi xuống, gồm cả câu hỏi và các lựa chọn. Trước đây dữ liệu
+  này bị cắt mất ngay lúc gửi nên plugin không biết bot vừa hỏi.
+- Trong tin nhắn riêng, khi bot đang chờ câu trả lời, tin nhắn là số thứ tự ("3", "số 3") hoặc đúng tên
+  một lựa chọn sẽ được chuyển thẳng thành câu trả lời, giống cách WhatsApp và Signal làm với nút chọn.
+  Bot làm tiếp ngay, không nhắn thêm câu thừa. Tin vẫn hiện trong khung chat của zalo-mod.
+- Tin không khớp lựa chọn nào thì được xử lý ngay, không phải chờ sau lượt đang hỏi.
+- Trong nhóm, tin kế tiếp có thể của người khác nên vẫn xếp hàng như cũ.
+- Cần OpenClaw 2026.9 trở lên. Bản cũ hơn thì tin trả lời đi theo đường thường như trước.
 
 ## [3.1.7] - 2026-10-14
 

@@ -41,7 +41,7 @@ import { wasRecentlyToolSent } from "../features/recent-tool-text.js";
 import { recordGroupId } from "../features/group-id-cache.js";
 import { refreshCredentials } from "../client/credentials.js";
 import { ThreadMessageQueue, type ThreadQueueEntry } from "./thread-queue.js";
-import { clearPendingQuestion, markPendingQuestion, readAskUserQuestionIdFromPayload, routeInboundMessage } from "./pending-question.js";
+import { clearPendingQuestion, markPendingQuestion, readAskUserOptionValuesFromPayload, readAskUserQuestionIdFromPayload, routeInboundMessage, type QuestionAnswerMatch } from "./pending-question.js";
 import { getRuntimeGroupPolicy } from "../runtime/group-policy.js";
 import { resetHistorySession } from "../features/history-session.js";
 import {
@@ -68,6 +68,45 @@ function buildBridgeAttachments(
 
 /** Exported for testing only. */
 export { buildBridgeAttachments as _buildBridgeAttachments };
+
+/**
+ * Trả lời một câu hỏi ask_user qua Gateway, như WhatsApp/Signal làm với reaction 1️⃣-4️⃣. SDK nạp động:
+ * OpenClaw cũ không có `question-gateway-runtime` thì trả null để tin đi đường thường.
+ */
+async function resolveAskUserAnswer(
+  cfg: OpenClawConfig,
+  questionId: string,
+  match: QuestionAnswerMatch,
+  senderId: string,
+): Promise<{ status: string } | null> {
+  let mod: any;
+  try {
+    // Tên module để ở biến: SDK dùng lúc build (2026.6) chưa có subpath này, chỉ OpenClaw 2026.9+ mới có.
+    const spec = "openclaw/plugin-sdk/question-gateway-runtime";
+    mod = await import(spec);
+  } catch {
+    return null;
+  }
+  // 2026.9.2 export dạng `questionGatewayRuntime.resolveOption`; .d.ts lại ghi `resolveQuestionOverGateway`.
+  const resolve = mod?.questionGatewayRuntime?.resolveOption ?? mod?.resolveQuestionOverGateway;
+  if (typeof resolve !== "function") return null;
+  return await resolve({ cfg, questionId, senderId, ...match });
+}
+
+/** Tin trả lời câu hỏi không vào agent, nhưng khung chat (zalo-mod) vẫn phải thấy nó. */
+async function publishAnsweredQuestionToBridge(accountId: string, message: ZaloConnectMessage): Promise<void> {
+  const senderId = message.metadata?.fromId ?? message.threadId;
+  await publishBridgeInbound({
+    accountId,
+    conversationId: message.threadId,
+    isGroup: false,
+    messageId: String(message.msgId ?? message.cliMsgId ?? `${senderId}:${message.timestamp}`),
+    senderId,
+    senderName: message.metadata?.senderName || senderId,
+    text: typeof message.content === "string" ? message.content : "",
+    timestamp: normalizeZaloTs(message.timestamp),
+  });
+}
 
 export type ZaloConnectMonitorOptions = {
   account: ResolvedZaloConnectAccount;
@@ -1404,7 +1443,7 @@ async function processMessage(
           // chính lượt đang chờ nó (xem pending-question.ts). Chỉ áp cho tin riêng: trong nhóm, tin
           // kế tiếp có thể của người khác, để nó đi đường hàng đợi như cũ.
           const askUserQuestionId = readAskUserQuestionIdFromPayload(payload);
-          if (askUserQuestionId && !isGroup) markPendingQuestion(account.accountId, chatId, askUserQuestionId);
+          if (askUserQuestionId && !isGroup) markPendingQuestion(account.accountId, chatId, askUserQuestionId, readAskUserOptionValuesFromPayload(payload));
           const sentVisible = await deliverZaloConnectReply({
             payload: payload as { text?: string; mediaUrls?: string[]; mediaUrl?: string; isReasoning?: boolean; isReasoningSnapshot?: boolean; isStatusNotice?: boolean; toolProgress?: boolean },
             chatId,
@@ -1972,17 +2011,22 @@ export async function monitorZaloConnectProvider(
         },
       });
 
-      // Hội thoại đang có câu hỏi ask_user chờ trả lời thì tin kế tiếp chạy ngay, không xếp hàng.
+      // Hội thoại đang có câu hỏi ask_user chờ trả lời: tin là số/nhãn lựa chọn thì trả lời câu hỏi qua
+      // Gateway (không thành lượt mới); tin khác thì chạy ngay, không xếp sau lượt đang chờ.
       const routeInbound = (converted: ZaloConnectMessage) => {
-        const route = routeInboundMessage({
+        void routeInboundMessage({
           accountId: account.accountId,
           threadId: converted.threadId,
           data: converted,
+          text: typeof converted.content === "string" ? converted.content : "",
           enqueue: (threadId, data) => messageQueue.enqueue(threadId, data),
           runNow: (data) => processMessage(data, account, config, core, runtime, statusSink),
-          onError: (err) => runtime.error(`[${account.accountId}] Failed to process question answer in thread ${converted.threadId}: ${String(err)}`),
+          resolveQuestion: (questionId, match) => resolveAskUserAnswer(config, questionId, match, converted.metadata?.fromId ?? converted.threadId),
+          onAnswered: (data) => publishAnsweredQuestionToBridge(account.accountId, data),
+          onError: (err) => runtime.error(`[${account.accountId}] ask_user answer in thread ${converted.threadId}: ${String(err)}`),
+        }).then((route) => {
+          if (route !== "queued") logVerbose(core, runtime, `[${account.accountId}] thread ${converted.threadId}: pending ask_user question, route=${route}`);
         });
-        if (route === "now") logVerbose(core, runtime, `[${account.accountId}] thread ${converted.threadId}: pending ask_user question, dispatching reply without queueing`);
       };
 
       api.listener.on("message", (msg: Message) => {

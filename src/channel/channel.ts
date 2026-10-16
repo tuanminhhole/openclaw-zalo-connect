@@ -47,6 +47,22 @@ import { LoginQRCallbackEventType } from "zca-js";
 import { displayQRFromPNG } from "../client/qr-display.js";
 import * as fs from "fs";
 import * as readline from "readline";
+import { markPendingQuestion, readAskUserOptionValuesFromPayload, readAskUserQuestionIdFromPayload } from "./pending-question.js";
+
+/**
+ * Payload chỉ có presentation (không có text) từng được OpenClaw tự đổi ra chữ rồi gọi sendText.
+ * Có sendPayload thì kênh phải tự làm việc đó; dùng đúng hàm dựng chữ của OpenClaw khi bản đang chạy có nó.
+ */
+async function presentationFallbackText(payload: any): Promise<string> {
+  if (!payload?.presentation) return "";
+  try {
+    const mod: any = await import("openclaw/plugin-sdk/interactive-runtime");
+    const render = mod?.renderMessagePresentationFallbackText;
+    return typeof render === "function" ? String(render({ text: payload.text, presentation: payload.presentation }) ?? "") : "";
+  } catch {
+    return "";
+  }
+}
 
 const meta = {
   id: "zalo-connect",
@@ -520,6 +536,35 @@ export const zaloConnectPlugin: ChannelPlugin<ResolvedZaloConnectAccount> = {
       // pipeline can skip an identical follow-up (avoids the double: self-send + reply).
       recordToolSentText(to, text);
       const result = await sendMessageZaloConnect(to, text, { isGroup, accountId: account.accountId });
+      return {
+        channel: "zalo-connect",
+        ok: result.ok,
+        messageId: result.messageId ?? "",
+        error: result.error ? new Error(result.error) : undefined,
+      };
+    },
+    // Payload có channelData/presentation (vd câu hỏi ask_user) đi qua đây thay vì sendText. Gửi như
+    // sendText/sendMedia, và đánh dấu câu hỏi để câu trả lời kế tiếp không phải xếp hàng sau chính lượt
+    // đang chờ nó (pending-question.ts). Thiếu hàm này thì channelData.askUser rơi mất ở sendText.
+    sendPayload: async ({ to: rawTo, text, mediaUrl, payload, accountId, cfg }) => {
+      const account = resolveZaloConnectAccountSync({ cfg, accountId });
+      const target = parseOutboundTarget(rawTo);
+      const to = target.id;
+      const isGroup = await resolveOutboundIsGroup(target, (id) => lookupIsGroup(account.accountId, id));
+      const body = text || payload?.text || (await presentationFallbackText(payload));
+      const questionId = readAskUserQuestionIdFromPayload(payload);
+      if (questionId && !isGroup) markPendingQuestion(account.accountId, to, questionId, readAskUserOptionValuesFromPayload(payload));
+      const options: any = { isGroup, accountId: account.accountId };
+      const media = mediaUrl || payload?.mediaUrl;
+      if (media && isLocalFilePath(media) && fs.existsSync(media)) {
+        options.localPath = media;
+        options.caption = body;
+      } else if (media) {
+        options.mediaUrl = media;
+        options.caption = body;
+      }
+      recordToolSentText(to, body);
+      const result = await sendMessageZaloConnect(to, body, options);
       return {
         channel: "zalo-connect",
         ok: result.ok,
