@@ -1,6 +1,6 @@
-import type { OpenClawConfig, MarkdownTableMode } from "openclaw/plugin-sdk/config-runtime";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/channel-core";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime";
-import { createReplyPrefixOptions, createTypingCallbacks } from "openclaw/plugin-sdk/channel-reply-pipeline";
+import { createReplyPrefixOptions, createTypingCallbacks } from "openclaw/plugin-sdk/channel-outbound";
 import { logTypingFailure, logAckFailure } from "openclaw/plugin-sdk/channel-feedback";
 import { mergeAllowlist, summarizeMapping } from "openclaw/plugin-sdk/allow-from";
 
@@ -439,6 +439,10 @@ function buildNameIndex<T>(items: T[], nameFn: (item: T) => string | undefined):
 }
 
 type ZaloConnectCoreRuntime = ReturnType<typeof getZaloConnectRuntime>;
+
+// Lấy thẳng từ core runtime thay vì import subpath SDK: core 2026.10.5 đã bỏ
+// "plugin-sdk/config-runtime", còn "plugin-sdk/config-contracts" thì bản 2026.6.x chưa có.
+type MarkdownTableMode = ReturnType<ZaloConnectCoreRuntime["channel"]["text"]["resolveMarkdownTableMode"]>;
 
 function logVerbose(core: ZaloConnectCoreRuntime, runtime: RuntimeEnv, message: string): void {
   if (core.logging.shouldLogVerbose()) {

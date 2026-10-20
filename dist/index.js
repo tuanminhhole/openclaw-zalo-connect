@@ -62599,7 +62599,7 @@ __export(monitor_exports, {
   monitorZaloConnectProvider: () => monitorZaloConnectProvider,
   normalizeZaloTs: () => normalizeZaloTs
 });
-import { createReplyPrefixOptions, createTypingCallbacks } from "openclaw/plugin-sdk/channel-reply-pipeline";
+import { createReplyPrefixOptions, createTypingCallbacks } from "openclaw/plugin-sdk/channel-outbound";
 import { logTypingFailure, logAckFailure } from "openclaw/plugin-sdk/channel-feedback";
 import { mergeAllowlist, summarizeMapping } from "openclaw/plugin-sdk/allow-from";
 import * as fs14 from "fs";
