@@ -4,6 +4,37 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 Định dạng dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.1.10] - 2026-10-22
+
+### ❤️ Bật, tắt thả tim theo từng nhóm
+
+Ghi nhận trên máy khách ngày 22/10/2026: chủ bot muốn bot tự thả tim ở nhóm này nhưng im ở nhóm
+khác. OpenClaw chỉ có một cài đặt chung `messages.ackReaction` cho mọi nơi, nên trước đây không làm
+được.
+
+- Bridge lên v7, thêm `setGroupAckReaction(accountId, groupId, enabled)` và
+  `getGroupAckReaction(accountId, groupId)`. `true` là luôn thả tim trong nhóm đó, `false` là không
+  bao giờ thả, `null` là quay về theo cài đặt chung.
+- Nhóm bật riêng mà cài đặt chung chưa có emoji thì thả `/-heart`.
+- Lựa chọn theo nhóm chỉ giữ trong RAM giống chế độ free, silent, mute. Plugin điều khiển (Zalo Mod
+  từ 2.33.0) lưu lại và phát lại sau mỗi lần khởi động gateway.
+- Nhóm chưa đặt riêng thì chạy y như trước, không có gì phải chỉnh lại trong cấu hình.
+
+## [3.1.9] - 2026-10-20
+
+### 🚑 Chạy được với OpenClaw 2026.10.5
+
+Ghi nhận khi nâng máy khách ngày 20/10/2026: vừa nâng OpenClaw lên 2026.10.5 thì kênh Zalo không
+khởi động được nữa, bot im hẳn, nhật ký báo `ERR_PACKAGE_PATH_NOT_EXPORTED`.
+
+- Bản 2026.10.5 bỏ hai đường dẫn `plugin-sdk/channel-reply-pipeline` và `plugin-sdk/config-runtime`
+  mà plugin đang gọi. Plugin nay lấy đúng những hàm đó ở `plugin-sdk/channel-outbound` và
+  `plugin-sdk/channel-core`.
+- Hai đường dẫn mới đã có sẵn từ các bản OpenClaw cũ, nên bản này vẫn chạy y như trước trên
+  2026.9.2 và các bản trước đó. Không cần nâng core mới dùng được.
+- Chỉ đổi chỗ lấy hàm, không đổi cách bot trả lời hay gõ phím, nên không có gì phải chỉnh lại
+  trong cấu hình.
+
 ## [3.1.8] - 2026-10-16
 
 ### 🚑 Bot đọc được đường link trong thẻ chia sẻ

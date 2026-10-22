@@ -20,6 +20,7 @@ import {
   type RuntimeGroupPolicy,
 } from "./group-policy.js";
 import { getRuntimeNameTriggers, setRuntimeNameTriggers } from "./name-triggers.js";
+import { getRuntimeGroupAckReaction, setRuntimeGroupAckReaction } from "./group-reaction.js";
 
 export type ZaloConnectBridgeAction = { action: string } & Record<string, unknown>;
 
@@ -207,7 +208,7 @@ function readNameTriggers(accountId?: string): ZaloConnectNameTriggers {
 
 export type ZaloConnectBridgeService = {
   /** Version 6 adds the ephemeral typing channel (additive to v5). */
-  version: 6;
+  version: 7;
   getStatus(accountId?: string): Promise<{
     connected: boolean;
     accountId?: string;
@@ -228,6 +229,13 @@ export type ZaloConnectBridgeService = {
   setGroupPolicy(accountId: string | undefined, groupId: string, mode: RuntimeGroupMode): Promise<RuntimeGroupPolicy>;
   getGroupPolicy(accountId: string | undefined, groupId: string): Promise<RuntimeGroupPolicy | undefined>;
   clearGroupPolicy(accountId: string | undefined, groupId: string): Promise<boolean>;
+  /**
+   * Per-group automatic reaction (bridge v7). true = always react in this group, false = never,
+   * null = follow messages.ackReaction / ackReactionScope. RAM-only: the caller replays it after a
+   * gateway restart, the same way it replays the group mode.
+   */
+  setGroupAckReaction?(accountId: string | undefined, groupId: string, enabled: boolean | null): Promise<boolean | null>;
+  getGroupAckReaction?(accountId: string | undefined, groupId: string): Promise<boolean | null>;
   /**
    * Read the silent-mode name gate for an account: the bot's own Zalo display
    * name (auto) plus the runtime alias overrides addressing it by name.
@@ -258,7 +266,7 @@ let seq = 0;
 
 export function createBridgeService(): ZaloConnectBridgeService {
   return {
-    version: 6,
+    version: 7,
 
     async getStatus(accountId) {
       return {
@@ -291,6 +299,12 @@ export function createBridgeService(): ZaloConnectBridgeService {
       return getRuntimeGroupPolicy(accountId, groupId);
     },
 
+    async setGroupAckReaction(accountId, groupId, enabled) {
+      return setRuntimeGroupAckReaction(accountId, groupId, enabled) ?? null;
+    },
+    async getGroupAckReaction(accountId, groupId) {
+      return getRuntimeGroupAckReaction(accountId, groupId) ?? null;
+    },
     async clearGroupPolicy(accountId, groupId) {
       return clearRuntimeGroupPolicy(accountId, groupId);
     },
