@@ -4,6 +4,22 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 Định dạng dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.1.10] - 2026-10-22
+
+### ❤️ Bật, tắt thả tim theo từng nhóm
+
+Ghi nhận trên máy khách ngày 22/10/2026: chủ bot muốn bot tự thả tim ở nhóm này nhưng im ở nhóm
+khác. OpenClaw chỉ có một cài đặt chung `messages.ackReaction` cho mọi nơi, nên trước đây không làm
+được.
+
+- Bridge lên v7, thêm `setGroupAckReaction(accountId, groupId, enabled)` và
+  `getGroupAckReaction(accountId, groupId)`. `true` là luôn thả tim trong nhóm đó, `false` là không
+  bao giờ thả, `null` là quay về theo cài đặt chung.
+- Nhóm bật riêng mà cài đặt chung chưa có emoji thì thả `/-heart`.
+- Lựa chọn theo nhóm chỉ giữ trong RAM giống chế độ free, silent, mute. Plugin điều khiển (Zalo Mod
+  từ 2.33.0) lưu lại và phát lại sau mỗi lần khởi động gateway.
+- Nhóm chưa đặt riêng thì chạy y như trước, không có gì phải chỉnh lại trong cấu hình.
+
 ## [3.1.9] - 2026-10-20
 
 ### 🚑 Chạy được với OpenClaw 2026.10.5

@@ -49,7 +49,7 @@ describe("plugin bridge service", () => {
   it("exposes the service on the documented global handshake", () => {
     const service = exposeBridgeService();
     expect((globalThis as Record<string, unknown>).__zaloConnectBridgeService).toBe(service);
-    expect(service.version).toBe(6);
+    expect(service.version).toBe(7);
     delete (globalThis as Record<string, unknown>).__zaloConnectBridgeService;
   });
 

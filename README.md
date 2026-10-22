@@ -7,7 +7,7 @@
 *Mỗi tài khoản có session, API client, listener và tuyến phản hồi riêng — đăng nhập QR, chạy đồng thời, không cần Zalo OA.*
 
 <p align="center">
-  <a href="https://github.com/tuanminhhole/openclaw-zalo-connect/releases/tag/v3.1.9"><img src="https://img.shields.io/badge/RELEASE-v3.1.9-0EA5E9?style=for-the-badge" alt="Version 3.1.0" /></a>
+  <a href="https://github.com/tuanminhhole/openclaw-zalo-connect/releases/tag/v3.1.10"><img src="https://img.shields.io/badge/RELEASE-v3.1.10-0EA5E9?style=for-the-badge" alt="Version 3.1.0" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/LICENSE-MIT-success?style=for-the-badge" alt="MIT License" /></a>
   <a href="https://openclaw.ai"><img src="https://img.shields.io/badge/OpenClaw-%E2%89%A52026.5.7-7C3AED?style=for-the-badge" alt="OpenClaw 2026.5.7+" /></a>
   <a href="https://github.com/tuanminhhole/openclaw-zalo-connect/stargazers"><img src="https://img.shields.io/github/stars/tuanminhhole/openclaw-zalo-connect?style=for-the-badge&color=eab308&logo=github&logoColor=white" alt="GitHub Stars" /></a>
@@ -277,7 +277,7 @@ Hướng dẫn chi tiết: **[docs/guide.md](docs/guide.md)**
 
 ---
 
-## 🔌 Bridge service v6
+## 🔌 Bridge service v7
 
 Zalo Connect expose một contract nhỏ cho plugin cùng process:
 
@@ -291,6 +291,8 @@ clearGroupPolicy(accountId, groupId)
 subscribeInbound(handler)
 subscribeHistory(handler)   // v5 — lô tin cũ kéo về từ Zalo, kèm `fromSelf`
 subscribeTyping(handler)    // v6 — "đang soạn tin", sống ~3 giây
+setGroupAckReaction(accountId, groupId, enabled)  // v7 - bật/tắt thả tim theo nhóm, null = theo cài đặt chung
+getGroupAckReaction(accountId, groupId)
 ```
 
 Ba kênh tách rời chứ không phải một luồng kèm cờ phân loại. Lịch sử và inbound đi

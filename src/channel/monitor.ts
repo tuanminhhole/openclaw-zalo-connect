@@ -43,6 +43,7 @@ import { refreshCredentials } from "../client/credentials.js";
 import { ThreadMessageQueue, type ThreadQueueEntry } from "./thread-queue.js";
 import { clearPendingQuestion, markPendingQuestion, readAskUserOptionValuesFromPayload, readAskUserQuestionIdFromPayload, routeInboundMessage, type QuestionAnswerMatch } from "./pending-question.js";
 import { getRuntimeGroupPolicy } from "../runtime/group-policy.js";
+import { getRuntimeGroupAckReaction, resolveAckReactionForMessage } from "../runtime/group-reaction.js";
 import { resetHistorySession } from "../features/history-session.js";
 import {
   publishBridgeInbound,
@@ -1351,13 +1352,14 @@ async function processMessage(
     accountId: account.accountId,
   });
 
-  // Ack reaction
-  const ackReaction = (config.messages?.ackReaction ?? "").trim();
+  // Ack reaction. A per-group override from the control plugin (Zalo Mod) wins over the global
+  // messages.ackReaction / ackReactionScope: off silences one group, on reacts in that group
+  // even when the global setting is off or scoped elsewhere.
+  const globalAckReaction = (config.messages?.ackReaction ?? "").trim();
   const ackScope = config.messages?.ackReactionScope ?? "group-mentions";
   const removeAckAfterReply = config.messages?.removeAckAfterReply ?? false;
-
-  const shouldAck = Boolean(
-    ackReaction &&
+  const globalShouldAck = Boolean(
+    globalAckReaction &&
       core.channel.reactions.shouldAckReaction({
         scope: ackScope,
         isDirect: !isGroup,
@@ -1369,6 +1371,12 @@ async function processMessage(
         shouldBypassMention: true,
       }),
   );
+  const ackReaction = resolveAckReactionForMessage({
+    globalEmoji: globalAckReaction,
+    globalShouldAck,
+    groupOverride: isGroup ? getRuntimeGroupAckReaction(account.accountId, chatId) : undefined,
+  });
+  const shouldAck = Boolean(ackReaction);
 
   let ackReactionPromise: Promise<boolean> | null = null;
   const resolvedCliMsgId = message.cliMsgId ?? lookupCliMsgId(message.msgId ?? "")?.cliMsgId;
