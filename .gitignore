@@ -37,3 +37,9 @@ tmp/
 
 # Internal engineering documentation (never publish)
 docs_dev/
+
+# Bí mật (chuẩn MonkeyTech, BI-MAT.md)
+secrets/
+*.pem
+*.key
+!.env.example
