@@ -55179,6 +55179,21 @@ var init_name_trigger = __esm({
   }
 });
 
+// src/runtime/shared-state.ts
+function sharedMap(key3) {
+  const g = globalThis;
+  const existing = g[key3];
+  if (existing instanceof Map) return existing;
+  const created = /* @__PURE__ */ new Map();
+  g[key3] = created;
+  return created;
+}
+var init_shared_state = __esm({
+  "src/runtime/shared-state.ts"() {
+    "use strict";
+  }
+});
+
 // src/runtime/name-triggers.ts
 function normalizeAccountId5(accountId) {
   return String(accountId || "default").trim() || "default";
@@ -55211,7 +55226,8 @@ var overrides;
 var init_name_triggers = __esm({
   "src/runtime/name-triggers.ts"() {
     "use strict";
-    overrides = /* @__PURE__ */ new Map();
+    init_shared_state();
+    overrides = sharedMap("__zaloConnectNameTriggers");
   }
 });
 
@@ -56196,7 +56212,8 @@ var policies;
 var init_group_policy = __esm({
   "src/runtime/group-policy.ts"() {
     "use strict";
-    policies = /* @__PURE__ */ new Map();
+    init_shared_state();
+    policies = sharedMap("__zaloConnectGroupPolicies");
   }
 });
 
@@ -56230,8 +56247,9 @@ var DEFAULT_GROUP_ACK_REACTION, overrides2;
 var init_group_reaction = __esm({
   "src/runtime/group-reaction.ts"() {
     "use strict";
+    init_shared_state();
     DEFAULT_GROUP_ACK_REACTION = "/-heart";
-    overrides2 = /* @__PURE__ */ new Map();
+    overrides2 = sharedMap("__zaloConnectGroupAckReactions");
   }
 });
 

@@ -15,9 +15,11 @@
  *   unset = follow messages.ackReaction / messages.ackReactionScope
  */
 
+import { sharedMap } from "./shared-state.js";
+
 export const DEFAULT_GROUP_ACK_REACTION = "/-heart";
 
-const overrides = new Map<string, boolean>();
+const overrides = sharedMap<string, boolean>("__zaloConnectGroupAckReactions");
 
 function key(accountId: string | undefined, groupId: string): string {
   const account = String(accountId || "default").trim() || "default";

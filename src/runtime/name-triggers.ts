@@ -12,7 +12,9 @@
  * caller replays its aliases after a real gateway restart.
  */
 
-const overrides = new Map<string, string[]>();
+import { sharedMap } from "./shared-state.js";
+
+const overrides = sharedMap<string, string[]>("__zaloConnectNameTriggers");
 
 function normalizeAccountId(accountId?: string): string {
   return String(accountId || "default").trim() || "default";
