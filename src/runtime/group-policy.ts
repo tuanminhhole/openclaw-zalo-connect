@@ -10,6 +10,8 @@
  * The caller replays its policies after a real gateway restart.
  */
 
+import { sharedMap } from "./shared-state.js";
+
 export type RuntimeGroupMode = "free" | "silent" | "mute";
 
 export type RuntimeGroupPolicy = {
@@ -19,7 +21,7 @@ export type RuntimeGroupPolicy = {
   updatedAt: number;
 };
 
-const policies = new Map<string, RuntimeGroupPolicy>();
+const policies = sharedMap<string, RuntimeGroupPolicy>("__zaloConnectGroupPolicies");
 
 function normalizeAccountId(accountId?: string): string {
   return String(accountId || "default").trim() || "default";

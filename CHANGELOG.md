@@ -4,6 +4,21 @@ Tất cả thay đổi đáng chú ý của dự án được ghi lại trong fi
 
 Định dạng dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.1.11] - 2026-11-03
+
+### 🚑 Chế độ im lặng, tên gọi và thả tim theo nhóm chạy lại trên OpenClaw 2026.9.8
+
+Ghi nhận trên máy khách ngày 03/11/2026: sau khi nâng OpenClaw từ 2026.9.2 lên 2026.9.8, chủ bot đã tắt
+thả tim cho các nhóm, giao diện báo đã tắt, nhưng bot vẫn thả tim. Đo thêm thì chế độ im lặng theo nhóm
+cũng không còn được kênh Zalo áp dụng nữa.
+
+- OpenClaw 2026.9.8 có thể nạp plugin thành nhiều bản trong cùng một tiến trình. Lựa chọn chế độ im lặng,
+  tên gọi và thả tim mà Zalo Mod gửi sang được lưu vào một bản, còn phần nhận tin lại đọc ở bản khác, nên
+  không có hiệu lực.
+- Nay ba bảng lựa chọn này dùng chung cho mọi bản của plugin. Lựa chọn có hiệu lực ngay như trước, không
+  cần khởi động lại.
+- Không đổi cấu hình, không đổi bridge. Máy chỉ có một bot không bị ảnh hưởng.
+
 ## [3.1.10] - 2026-10-22
 
 ### ❤️ Bật, tắt thả tim theo từng nhóm
