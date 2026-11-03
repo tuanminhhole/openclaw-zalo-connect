@@ -1,6 +1,6 @@
 # CLAUDE.md - openclaw-zalo-connect
 
-Bối cảnh gốc: đọc `~/SecondBrain/CONTEXT.md`. Bộ chuẩn dự án: `~/Project/chuan/README.md` (cấu trúc, bí mật, tên biến ở `BI-MAT.md`).
+Bối cảnh gốc: đọc `~/SecondBrain/CONTEXT.md`. Bộ chuẩn dự án: `~/Project/chuan/master/README.md` (cấu trúc, bí mật, tên biến ở `BI-MAT.md`).
 
 - Repo làm gì: plugin OpenClaw nối tài khoản Zalo cá nhân qua zca-js (transport ~150 action).
 - Triển khai: plugin cài vào OpenClaw của khách, không có thư mục riêng trên vps_mkt (CAU-TRUC.md: chưa kiểm). CI chỉ chạy trên `main` và PR vào `main`.
